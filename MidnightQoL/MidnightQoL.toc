@@ -1,0 +1,27 @@
+## Interface: 120001
+## Title: Midnight QoL |cFFFFAAAACore|r
+## Notes: Core addon — main window, tab system, layout editor, spec profiles, profile copy tool.
+## Author: You
+## Version: 2.0
+## SavedVariables: BuffAlertDB
+
+API.lua
+Widgets.lua
+SoundsList.lua
+MidnightQoL.lua
+
+# Spell Lists (Now pointing to the /Spells/ subfolder)
+Spells\ExternalBuffSpells.lua
+Spells\WarriorSpells.lua
+Spells\PaladinSpells.lua
+Spells\HunterSpells.lua
+Spells\RogueSpells.lua
+Spells\PriestSpells.lua
+Spells\DruidSpells.lua
+Spells\ShamanSpells.lua
+Spells\MageSpells.lua
+Spells\WarlockSpells.lua
+Spells\DeathKnightSpells.lua
+Spells\DemonHunterSpells.lua
+Spells\MonkSpells.lua
+Spells\EvokerSpells.lua

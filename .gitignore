@@ -1,0 +1,8 @@
+# WoW SavedVariables (generated at runtime, not source)
+*.bak
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db

@@ -1,0 +1,10 @@
+## Interface: 110107
+## Title: MidnightQoL |cFF88FF88Resource Bars|r
+## Notes: Spec-aware resource bars (pip bars, standard bars, class power). Requires MidnightQoL.
+## Author: You
+## Version: 2.0
+## SavedVariables: BuffAlertDB
+## Dependencies: MidnightQoL
+
+ResourceBars.lua
+ResourceBarsUI.lua
