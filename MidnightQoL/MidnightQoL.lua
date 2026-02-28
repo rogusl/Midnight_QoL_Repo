@@ -412,6 +412,53 @@ local function GetOrCreateHandle(i)
             self.liveFrameRef:ClearAllPoints(); self.liveFrameRef:SetPoint("CENTER",UIParent,"CENTER",ox,oy) end
         if self.saveCallback then self.saveCallback(ox,oy) end
     end)
+
+    -- ── Resize handle (bottom-right corner) ───────────────────────────────────
+    local resizeGrip = CreateFrame("Button",nil,h)
+    resizeGrip:SetSize(14,14); resizeGrip:SetPoint("BOTTOMRIGHT",h,"BOTTOMRIGHT",0,0)
+    resizeGrip:SetFrameLevel(h:GetFrameLevel()+2)
+    local resizeTex = resizeGrip:CreateTexture(nil,"OVERLAY")
+    resizeTex:SetAllPoints(resizeGrip); resizeTex:SetColorTexture(0.8,0.9,1,0.7)
+    -- Tooltip
+    resizeGrip:SetScript("OnEnter",function(self)
+        GameTooltip:SetOwner(self,"ANCHOR_TOPLEFT")
+        GameTooltip:AddLine("Drag to resize",0.8,0.9,1); GameTooltip:Show()
+    end)
+    resizeGrip:SetScript("OnLeave",function() GameTooltip:Hide() end)
+    -- Drag to resize the live frame
+    resizeGrip:SetScript("OnMouseDown",function(self)
+        resizeGrip._resizing=true
+        resizeGrip._startX, resizeGrip._startY = GetCursorPosition()
+        local sc = UIParent:GetEffectiveScale()
+        resizeGrip._startX = resizeGrip._startX / sc
+        resizeGrip._startY = resizeGrip._startY / sc
+        local lf = h.liveFrameRef
+        resizeGrip._origW = lf and lf:GetWidth()  or nil
+        resizeGrip._origH = lf and lf:GetHeight() or nil
+    end)
+    resizeGrip:SetScript("OnMouseUp",function(self)
+        if not resizeGrip._resizing then return end
+        resizeGrip._resizing=false
+        -- Persist final size through saveCallback with nil position to signal resize-only
+        local lf = h.liveFrameRef
+        if lf and h.resizeCallback then
+            h.resizeCallback(lf:GetWidth(), lf:GetHeight())
+        end
+    end)
+    resizeGrip:SetScript("OnUpdate",function(self)
+        if not resizeGrip._resizing then return end
+        local sc = UIParent:GetEffectiveScale()
+        local cx, cy = GetCursorPosition()
+        cx, cy = cx/sc, cy/sc
+        local dx = cx - resizeGrip._startX
+        local dy = resizeGrip._startY - cy  -- inverted Y
+        local newW = math.max(20, (resizeGrip._origW or 200) + dx)
+        local newH = math.max(8,  (resizeGrip._origH or 20)  + dy)
+        local lf = h.liveFrameRef
+        if lf then lf:SetSize(newW, newH) end
+        h.posLbl:SetText(string.format("%.0fx%.0f", newW, newH))
+    end)
+    h.resizeGrip = resizeGrip
     h:SetScript("OnUpdate",function(self)
         if not self.isDragging then return end
         local cx=UIParent:GetWidth()/2; local cy=UIParent:GetHeight()/2
@@ -429,7 +476,9 @@ end
 
 local function HideAllHandles()
     for _,h in ipairs(layoutHandles) do
-        h.previewOverlay=nil; h.liveIconTarget=nil; h.liveFrameRef=nil; h:Hide() end
+        h.previewOverlay=nil; h.liveIconTarget=nil; h.liveFrameRef=nil; h.resizeCallback=nil
+        if h.resizeGrip then h.resizeGrip._resizing=false end
+        h:Hide() end
 end
 
 local function EnterLayoutMode()
@@ -451,6 +500,7 @@ local function EnterLayoutMode()
                 local h=ShowHandle(hd.label,hd.iconTex,hd.ox or 0,hd.oy or 0,hd.saveCallback)
                 if hd.liveIconTarget then h.liveIconTarget=hd.liveIconTarget end
                 if hd.liveFrameRef   then h.liveFrameRef=hd.liveFrameRef   end
+                if hd.resizeCallback then h.resizeCallback=hd.resizeCallback end
                 if hd.previewFunc    then
                     local ov=hd.previewFunc(); if ov then h.previewOverlay=ov end end
             end

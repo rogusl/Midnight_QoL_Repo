@@ -177,7 +177,7 @@ local function BuildBarsGeneralUI()
 
     -- ── Pull Timer section ─────────────────────────────────────────────────────
     local pullHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
-    pullHeader:SetPoint("TOPLEFT", 10, -240)
+    pullHeader:SetPoint("TOPLEFT", petSoundLabel, "BOTTOMLEFT", 0, -20)
     pullHeader:SetText("|cFFFFD700Pull Timer|r")
 
     local pullDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")

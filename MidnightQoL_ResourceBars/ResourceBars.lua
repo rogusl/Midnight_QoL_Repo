@@ -1,362 +1,295 @@
 -- ============================================================
 -- MidnightQoL_ResourceBars / ResourceBars.lua
--- Live resource bars: polls UnitPower every frame (OnUpdate),
--- supports continuous bars and discrete pip bars.
--- Spec-profile aware: each spec gets its own bar configuration.
 -- ============================================================
 
 local API = MidnightQoLAPI
 
--- ── Power type map ────────────────────────────────────────────────────────────
--- Maps specID (from GetSpecializationInfo) to the Blizzard Enum.PowerType values
--- for primary and secondary resources shown on the bar.
--- specID is the 4th return of GetSpecializationInfo(GetSpecialization()).
+-- ── Constants & Localized Functions ──────────────────────────────────────────
+local GetPower    = UnitPower
+local GetPowerMax = UnitPowerMax
+local STAGGER          = 20  -- fake power type: uses UnitStagger/UnitHealthMax
+local MAELSTROM_WEAPON = 21  -- fake power type: Enhancement buff
+-- Spell ID changed in The War Within (11.0). Try new ID first, fall back to classic.
+local MAELSTROM_WEAPON_SPELL_ID      = 344179  -- TWW / Dragonflight rework
+local MAELSTROM_WEAPON_SPELL_ID_OLD  = 53817   -- classic / pre-rework fallback
 
-local POWER_MANA   = Enum.PowerType.Mana
-local POWER_RAGE   = Enum.PowerType.Rage
-local POWER_FOCUS  = Enum.PowerType.Focus
-local POWER_ENERGY = Enum.PowerType.Energy
-local POWER_CHI    = Enum.PowerType.Chi
-local POWER_RUNES  = Enum.PowerType.Runes
-local POWER_RUNIC  = Enum.PowerType.RunicPower
-local POWER_SOUL   = Enum.PowerType.SoulShards
-local POWER_LUNAR  = Enum.PowerType.LunarPower
-local POWER_HOLY   = Enum.PowerType.HolyPower
-local POWER_MAELSTROM = Enum.PowerType.Maelstrom
-local POWER_INSANITY  = Enum.PowerType.Insanity
-local POWER_FURY      = Enum.PowerType.Fury
-local POWER_PAIN      = Enum.PowerType.Pain
-local POWER_ESSENCE   = Enum.PowerType.Essence
-local POWER_COMBO     = Enum.PowerType.ComboPoints
-local POWER_ARCANE    = Enum.PowerType.ArcaneCharges
+-- ── Pip shape definitions ────────────────────────────────────────────────────
+-- All shapes use SetColorTexture for reliable solid fills in TWW.
+-- Circle uses a guaranteed WoW mask texture to punch a circular cutout.
+local CIRCLE_MASK = "Interface\\CharacterFrame\\TempPortraitAlphaMask"
 
--- isPip = show as discrete circles, maxPips = circle count
--- isBar = show as a continuous fill bar
-local SPEC_POWER = {
-    -- Death Knight
-    [250] = {primary={type=POWER_RUNES,  isPip=true, maxPips=6, label="Runes"},  secondary={type=POWER_RUNIC, isBar=true, label="Runic Power"}},
-    [251] = {primary={type=POWER_RUNES,  isPip=true, maxPips=6, label="Runes"},  secondary={type=POWER_RUNIC, isBar=true, label="Runic Power"}},
-    [252] = {primary={type=POWER_RUNES,  isPip=true, maxPips=6, label="Runes"},  secondary={type=POWER_RUNIC, isBar=true, label="Runic Power"}},
-    -- Demon Hunter
-    [577] = {primary={type=POWER_FURY,   isBar=true, label="Fury"},  secondary=nil},
-    [581] = {primary={type=POWER_PAIN,   isBar=true, label="Pain"},  secondary=nil},
-    -- Druid
-    [102] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_LUNAR, isBar=true, label="Astral Power"}},
-    [103] = {primary={type=POWER_ENERGY, isBar=true, label="Energy"},   secondary={type=POWER_COMBO, isPip=true, maxPips=5, label="Combo Points"}},
-    [104] = {primary={type=POWER_RAGE,   isBar=true, label="Rage"},     secondary=nil},
-    [105] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    -- Evoker
-    [1467]= {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_ESSENCE, isPip=true, maxPips=6, label="Essence"}},
-    [1468]= {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_ESSENCE, isPip=true, maxPips=6, label="Essence"}},
-    [1473]= {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_ESSENCE, isPip=true, maxPips=6, label="Essence"}},
-    -- Hunter
-    [253] = {primary={type=POWER_FOCUS,  isBar=true, label="Focus"},    secondary=nil},
-    [254] = {primary={type=POWER_FOCUS,  isBar=true, label="Focus"},    secondary=nil},
-    [255] = {primary={type=POWER_FOCUS,  isBar=true, label="Focus"},    secondary=nil},
-    -- Mage
-    [62]  = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_ARCANE, isPip=true, maxPips=4, label="Arcane Charges"}},
-    [63]  = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    [64]  = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    -- Monk
-    [268] = {primary={type=POWER_ENERGY, isBar=true, label="Energy"},   secondary={type=POWER_CHI, isPip=true, maxPips=6, label="Chi"}},
-    [269] = {primary={type=POWER_ENERGY, isBar=true, label="Energy"},   secondary={type=POWER_CHI, isPip=true, maxPips=5, label="Chi"}},
-    [270] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    -- Paladin
-    [65]  = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_HOLY, isPip=true, maxPips=5, label="Holy Power"}},
-    [66]  = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    [70]  = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_HOLY, isPip=true, maxPips=5, label="Holy Power"}},
-    -- Priest
-    [256] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    [257] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    [258] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_INSANITY, isBar=true, label="Insanity"}},
-    -- Rogue
-    [259] = {primary={type=POWER_ENERGY, isBar=true, label="Energy"},   secondary={type=POWER_COMBO, isPip=true, maxPips=7, label="Combo Points"}},
-    [260] = {primary={type=POWER_ENERGY, isBar=true, label="Energy"},   secondary={type=POWER_COMBO, isPip=true, maxPips=6, label="Combo Points"}},
-    [261] = {primary={type=POWER_ENERGY, isBar=true, label="Energy"},   secondary={type=POWER_COMBO, isPip=true, maxPips=6, label="Combo Points"}},
-    -- Shaman
-    [262] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_MAELSTROM, isBar=true, label="Maelstrom"}},
-    [263] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    [264] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    -- Warlock
-    [265] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary={type=POWER_SOUL, isPip=true, maxPips=5, label="Soul Shards"}},
-    [266] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    [267] = {primary={type=POWER_MANA,   isBar=true, label="Mana"},     secondary=nil},
-    -- Warrior
-    [71]  = {primary={type=POWER_RAGE,   isBar=true, label="Rage"},     secondary=nil},
-    [72]  = {primary={type=POWER_RAGE,   isBar=true, label="Rage"},     secondary=nil},
-    [73]  = {primary={type=POWER_RAGE,   isBar=true, label="Rage"},     secondary=nil},
+local PIP_SHAPES = {
+    { key="square",  label="■ Square",  mask=nil },
+    { key="circle",  label="● Circle",  mask=CIRCLE_MASK },
+    { key="wide",    label="▬ Wide",    mask=nil, wide=true },
+    { key="thin",    label="| Thin",    mask=nil, thin=true },
+}
+local PIP_SHAPE_INDEX = {}
+for _, s in ipairs(PIP_SHAPES) do PIP_SHAPE_INDEX[s.key] = s end
+
+local function ApplyPipShape(pip, shapeKey)
+    pip:SetColorTexture(1, 1, 1, 1)  -- solid white; color set per-frame via SetColorTexture
+    local shape = PIP_SHAPE_INDEX[shapeKey or "square"]
+    if shape and shape.mask then
+        pip:SetMask(shape.mask)
+    else
+        pip:SetMask(nil)
+    end
+end
+API.PIP_SHAPES = PIP_SHAPES
+
+local SECONDARY_POWER_TYPES = {
+    [Enum.PowerType.RunicPower]=true, [Enum.PowerType.HolyPower]=true, [Enum.PowerType.Chi]=true,
+    [Enum.PowerType.ComboPoints]=true, [Enum.PowerType.ArcaneCharges]=true, [Enum.PowerType.SoulShards]=true,
+    [Enum.PowerType.LunarPower]=true, [Enum.PowerType.Maelstrom]=true, [Enum.PowerType.Insanity]=true,
+    [Enum.PowerType.Essence]=true, [Enum.PowerType.Runes]=true, [STAGGER]=true, [MAELSTROM_WEAPON]=true,
 }
 
-API.SPEC_POWER = SPEC_POWER
+-- ── Spec → valid power types ──────────────────────────────────────────────────
+-- Keyed by specID (4th return of GetSpecializationInfo). Each entry lists every
+-- power type that spec can meaningfully display, so the UI picker can filter.
+-- Enhancement (263) lists MAELSTROM_WEAPON (21) not Enum.PowerType.Maelstrom (11).
+local SPEC_POWERS = {
+    -- Death Knight
+    [250]={Enum.PowerType.Runes, Enum.PowerType.RunicPower},
+    [251]={Enum.PowerType.Runes, Enum.PowerType.RunicPower},
+    [252]={Enum.PowerType.Runes, Enum.PowerType.RunicPower},
+    -- Demon Hunter
+    [577]={Enum.PowerType.Fury},
+    [581]={Enum.PowerType.Pain},
+    -- Druid
+    [102]={Enum.PowerType.Mana,   Enum.PowerType.LunarPower},
+    [103]={Enum.PowerType.Energy, Enum.PowerType.ComboPoints},
+    [104]={Enum.PowerType.Rage},
+    [105]={Enum.PowerType.Mana},
+    -- Evoker
+    [1467]={Enum.PowerType.Mana, Enum.PowerType.Essence},
+    [1468]={Enum.PowerType.Mana, Enum.PowerType.Essence},
+    [1473]={Enum.PowerType.Mana, Enum.PowerType.Essence},
+    -- Hunter
+    [253]={Enum.PowerType.Focus},
+    [254]={Enum.PowerType.Focus},
+    [255]={Enum.PowerType.Focus},
+    -- Mage
+    [62] ={Enum.PowerType.Mana, Enum.PowerType.ArcaneCharges},
+    [63] ={Enum.PowerType.Mana},
+    [64] ={Enum.PowerType.Mana},
+    -- Monk
+    [268]={Enum.PowerType.Energy, STAGGER},               -- Brewmaster: Energy + Stagger (no Chi)
+    [269]={Enum.PowerType.Energy, Enum.PowerType.Chi},
+    [270]={Enum.PowerType.Mana},
+    -- Paladin
+    [65] ={Enum.PowerType.Mana, Enum.PowerType.HolyPower},
+    [66] ={Enum.PowerType.Mana},
+    [70] ={Enum.PowerType.Mana, Enum.PowerType.HolyPower},
+    -- Priest
+    [256]={Enum.PowerType.Mana},
+    [257]={Enum.PowerType.Mana},
+    [258]={Enum.PowerType.Mana, Enum.PowerType.Insanity},
+    -- Rogue
+    [259]={Enum.PowerType.Energy, Enum.PowerType.ComboPoints},
+    [260]={Enum.PowerType.Energy, Enum.PowerType.ComboPoints},
+    [261]={Enum.PowerType.Energy, Enum.PowerType.ComboPoints},
+    -- Shaman
+    [262]={Enum.PowerType.Mana, Enum.PowerType.Maelstrom},  -- Elemental
+    [263]={Enum.PowerType.Mana, MAELSTROM_WEAPON},           -- Enhancement
+    [264]={Enum.PowerType.Mana},                             -- Restoration
+    -- Warlock
+    [265]={Enum.PowerType.Mana, Enum.PowerType.SoulShards},
+    [266]={Enum.PowerType.Mana},
+    [267]={Enum.PowerType.Mana},
+    -- Warrior
+    [71] ={Enum.PowerType.Rage},
+    [72] ={Enum.PowerType.Rage},
+    [73] ={Enum.PowerType.Rage},
+}
 
--- ── Global enable state ───────────────────────────────────────────────────────
+-- ── State ────────────────────────────────────────────────────────────────────
 local resourceBarsEnabled = true
+local MAX_BARS   = 2
+local barConfigs = {}
+local barFrames  = {}
+local roleUnitCache = {}
 
-local function SyncResourceBarsToggle()
-    if not API.resourceBarsEnabledCheckbox then return end
-    resourceBarsEnabled = API.resourceBarsEnabledCheckbox:GetChecked()
-    if BuffAlertDB then BuffAlertDB.resourceBarsEnabled = resourceBarsEnabled end
-    if API.RebuildLiveBars then API.RebuildLiveBars() end
+-- ── Utility ──────────────────────────────────────────────────────────────────
+local function ResolveUnit(unitCfg)
+    if not unitCfg then return "player" end
+    return roleUnitCache[unitCfg] or unitCfg
 end
 
--- Hook the checkbox once it exists (it's created in MidnightQoL.lua before this runs)
-local hookRetryFrame = CreateFrame("Frame")
-hookRetryFrame:SetScript("OnUpdate", function(self)
-    if API.resourceBarsEnabledCheckbox then
-        API.resourceBarsEnabledCheckbox:HookScript("OnClick", SyncResourceBarsToggle)
-        self:SetScript("OnUpdate", nil)
+local function RefreshBar(i)
+    local f = barFrames[i]
+    local cfg = barConfigs[i]
+    if not f or not f:IsShown() or not cfg or not cfg.enabled then return end
+
+    local unit = ResolveUnit(cfg.unit)
+    if not UnitExists(unit) then return end
+
+    local pt = cfg.powerType
+    local cur, max
+    if pt == STAGGER then
+        cur = UnitStagger(unit) or 0
+        max = UnitHealthMax(unit) or 1
+    elseif pt == MAELSTROM_WEAPON then
+        -- Maelstrom Weapon is a stacking buff on Enhancement Shaman, not a power
+        -- type. Spell ID changed in TWW; try new ID first then classic fallback.
+        local aura = C_UnitAuras.GetPlayerAuraBySpellID(MAELSTROM_WEAPON_SPELL_ID)
+                  or C_UnitAuras.GetPlayerAuraBySpellID(MAELSTROM_WEAPON_SPELL_ID_OLD)
+        cur = aura and aura.applications or 0
+        max = 10
+    else
+        cur = GetPower(unit, pt) or 0
+        max = GetPowerMax(unit, pt) or 1
     end
-end)
 
+    if cfg.isPip then
+        -- Use the live game maximum as the pip count so resources like Combo Points
+        -- and Maelstrom Weapon automatically show the correct number of pips.
+        -- cfg.maxPips acts as a manual override when explicitly set (>0).
+        local n = (cfg.maxPips and cfg.maxPips > 0) and cfg.maxPips or max
+        n = math.max(1, math.min(n, 20))  -- clamp 1–20
 
--- We keep one "bar set" per config slot (there can be up to 4 bars configured).
--- Each set contains the bar frame + optional pip frames.
-
-local MAX_BARS = 2
-local barFrames = {}    -- [i] = the live HUD bar frame
-local barConfigs = {}   -- [i] = {enabled, powerType, isPip, maxPips, ...layout}
-local updateFrame = CreateFrame("Frame")
-
-API.barFrames  = barFrames
-API.barConfigs = barConfigs
-
--- ── Spec profile save/load ────────────────────────────────────────────────────
-local function OnSaveProfile(profile)
-    -- Harvest live barConfigs into profile
-    profile.resourceBars = {}
-    for i = 1, MAX_BARS do
-        local cfg = barConfigs[i]
-        if cfg then
-            profile.resourceBars[i] = {
-                enabled    = cfg.enabled,
-                unit       = cfg.unit or "player",
-                powerType  = cfg.powerType,
-                isPip      = cfg.isPip,
-                maxPips    = cfg.maxPips,
-                isBar      = cfg.isBar,
-                label      = cfg.label,
-                x          = cfg.x, y = cfg.y,
-                w          = cfg.w, h = cfg.h,
-                r          = cfg.r, g = cfg.g, b = cfg.b,
-                bgR        = cfg.bgR, bgG = cfg.bgG, bgB = cfg.bgB,
-                showLabel  = cfg.showLabel,
-                showValue  = cfg.showValue,
-                pipSize    = cfg.pipSize,
-                pipGap     = cfg.pipGap,
-            }
-        end
-    end
-end
-
-local function OnLoadProfile(profile)
-    if not profile.resourceBars then
-        -- Auto-populate bars based on spec power map
-        local specID = API.currentSpecID
-        local specPow = SPEC_POWER[specID]
-        profile.resourceBars = {}
-        if specPow then
-            if specPow.primary then
-                profile.resourceBars[1] = {
-                    enabled   = true,
-                    powerType = specPow.primary.type,
-                    isPip     = specPow.primary.isPip or false,
-                    maxPips   = specPow.primary.maxPips or 5,
-                    isBar     = specPow.primary.isBar or false,
-                    label     = specPow.primary.label or "",
-                    x=0, y=-200, w=200, h=20,
-                    r=0.2,g=0.6,b=1, bgR=0.1,bgG=0.1,bgB=0.1,
-                    showLabel=true, showValue=true, pipSize=18, pipGap=4,
-                }
-            end
-            if specPow.secondary then
-                profile.resourceBars[2] = {
-                    enabled   = true,
-                    powerType = specPow.secondary.type,
-                    isPip     = specPow.secondary.isPip or false,
-                    maxPips   = specPow.secondary.maxPips or 5,
-                    isBar     = specPow.secondary.isBar or false,
-                    label     = specPow.secondary.label or "",
-                    x=0, y=-228, w=200, h=14,
-                    r=1,g=0.8,b=0.1, bgR=0.1,bgG=0.1,bgB=0.1,
-                    showLabel=false, showValue=false, pipSize=16, pipGap=4,
-                }
+        -- Grow pip pool on-demand if needed
+        if #f.pips < n then
+            for p = #f.pips + 1, n do
+                f.pips[p] = f:CreateTexture(nil, "ARTWORK")
+                ApplyPipShape(f.pips[p], cfg.pipShape)
             end
         end
-    end
-    -- Sync global enable from DB
-    if BuffAlertDB then
-        resourceBarsEnabled = BuffAlertDB.resourceBarsEnabled ~= false
-        if API.resourceBarsEnabledCheckbox then
-            API.resourceBarsEnabledCheckbox:SetChecked(resourceBarsEnabled)
+
+        local activeR, activeG, activeB = cfg.r or 1, cfg.g or 0.8, cfg.b or 0.1
+        for p = 1, 20 do
+            local pip = f.pips[p]
+            if pip then
+                if p <= n then
+                    pip:Show()
+                    if p <= cur then
+                        pip:SetColorTexture(activeR, activeG, activeB, 1)
+                    else
+                        pip:SetColorTexture(0.3, 0.3, 0.3, 0.5)
+                    end
+                else
+                    pip:Hide()
+                end
+            end
         end
+    else
+        f.bar:SetAllPoints(f)  -- ensure it's full width (may have been moved)
+        f.bar:SetMinMaxValues(0, max)
+        f.bar:SetValue(cur)
+        f.bar:SetStatusBarColor(cfg.r or 0.2, cfg.g or 0.6, cfg.b or 1, 0.9)
     end
-    -- Load configs and rebuild live bars
-    for i = 1, MAX_BARS do
-        barConfigs[i] = profile.resourceBars and profile.resourceBars[i] or nil
-        if barConfigs[i] and not barConfigs[i].unit then barConfigs[i].unit = "player" end
-    end
-    if API.RebuildLiveBars then API.RebuildLiveBars() end
-    if API.RefreshResourceBarUI then API.RefreshResourceBarUI() end
+
+    local pipN = (cfg.isPip and ((cfg.maxPips and cfg.maxPips > 0) and cfg.maxPips or max)) or max
+    f.value:SetText(cfg.showValue and (cur .. "/" .. math.floor(pipN)) or "")
+    f.label:SetText(cfg.showLabel and (cfg.label or "") or "")
 end
 
-API.RegisterProfileCallbacks(OnSaveProfile, OnLoadProfile)
+-- ── Frame Creation ───────────────────────────────────────────────────────────
+local function CreateResourceBarFrame(i)
+    if barFrames[i] then return barFrames[i] end
 
--- ── Live bar builder ──────────────────────────────────────────────────────────
-local function CreateBarFrame(i)
-    local f = CreateFrame("Frame","MidnightQoLBar"..i,UIParent)
-    f:SetFrameStrata("BACKGROUND")
+    local f = CreateFrame("Frame", nil, UIParent) -- Anonymous frame
+    f:SetFrameStrata("MEDIUM")
     f:SetMovable(true); f:EnableMouse(true); f:RegisterForDrag("LeftButton")
     f:SetClampedToScreen(true)
-    f:SetScript("OnDragStart",function(self) self:StartMoving() end)
-    f:SetScript("OnDragStop",function(self)
+    f:SetScript("OnDragStart", f.StartMoving)
+    f:SetScript("OnDragStop", function(self)
         self:StopMovingOrSizing()
-        local cx=UIParent:GetWidth()/2; local cy=UIParent:GetHeight()/2
-        local nx=math.floor(self:GetLeft()+self:GetWidth()/2-cx+0.5)
-        local ny=math.floor(self:GetBottom()+self:GetHeight()/2-cy+0.5)
-        local cfg=barConfigs[i]; if cfg then cfg.x=nx; cfg.y=ny end
+        local cfg = barConfigs[i]
+        if cfg then
+            local cx, cy = UIParent:GetWidth()/2, UIParent:GetHeight()/2
+            cfg.x = math.floor(self:GetLeft() + self:GetWidth()/2 - cx + 0.5)
+            cfg.y = math.floor(self:GetBottom() + self:GetHeight()/2 - cy + 0.5)
+        end
     end)
-    f:Hide()
-    -- Background
-    f.bg = f:CreateTexture(nil,"BACKGROUND"); f.bg:SetAllPoints(f); f.bg:SetColorTexture(0.1,0.1,0.1,0.8)
-    -- Fill (for continuous bars)
-    f.fill = f:CreateTexture(nil,"ARTWORK"); f.fill:SetColorTexture(0.2,0.6,1,0.9)
-    f.fill:SetPoint("TOPLEFT",f,"TOPLEFT",0,0); f.fill:SetPoint("BOTTOMLEFT",f,"BOTTOMLEFT",0,0); f.fill:SetWidth(1)
-    -- Label
-    f.label = f:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    f.label:SetPoint("LEFT",f,"LEFT",4,0); f.label:SetJustifyH("LEFT"); f.label:SetTextColor(1,1,1,0.9)
-    -- Value text
-    f.value = f:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    f.value:SetPoint("RIGHT",f,"RIGHT",-4,0); f.value:SetJustifyH("RIGHT"); f.value:SetTextColor(1,1,1,0.7)
-    -- Pip frames (for discrete resources like Chi, Holy Power, Runes, Combo Points)
+
+    -- The actual StatusBar (Taint-safe)
+    f.bar = CreateFrame("StatusBar", nil, f)
+    f.bar:SetStatusBarTexture("Interface\\TargetingFrame\\UI-StatusBar")
+    f.bar:SetAllPoints(f)
+    
+    f.bg = f.bar:CreateTexture(nil, "BACKGROUND")
+    f.bg:SetAllPoints(f)
+
+    f.label = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.label:SetPoint("BOTTOM", f, "TOP", 0, 2)
+
+    f.value = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    f.value:SetPoint("CENTER", f, "CENTER", 0, 0)
+    f.value:SetFont(f.value:GetFont(), 11, "OUTLINE")
+
     f.pips = {}
     for p = 1, 10 do
-        local pip = f:CreateTexture(nil,"ARTWORK")
-        pip:SetTexture("Interface\\Buttons\\UI-Quickslot2")   -- circular gem look
-        pip:Hide()
-        f.pips[p] = pip
+        f.pips[p] = f:CreateTexture(nil, "ARTWORK")
+        f.pips[p]:SetColorTexture(1, 1, 1, 1)
     end
+
+    barFrames[i] = f
     return f
 end
 
-local function RebuildLiveBars()
+local function RebuildBars()
     for i = 1, MAX_BARS do
-        if not barFrames[i] then barFrames[i] = CreateBarFrame(i) end
-        local f   = barFrames[i]
         local cfg = barConfigs[i]
-        if not cfg or not cfg.enabled or not resourceBarsEnabled then
-            f:Hide()
-        else
+        local f = CreateResourceBarFrame(i)
+        if cfg and cfg.enabled and resourceBarsEnabled then
             f:ClearAllPoints()
             f:SetPoint("CENTER", UIParent, "CENTER", cfg.x or 0, cfg.y or -200)
-            -- Hide all pips first
-            for _, pip in ipairs(f.pips) do pip:Hide() end
-
             if cfg.isPip then
-                -- Size the frame to fit pips in a row
-                local ps  = cfg.pipSize or 18
-                local gap = cfg.pipGap  or 4
-                local n   = cfg.maxPips or 5
-                local fw  = n*(ps+gap) - gap
-                f:SetSize(fw, ps)
-                f.fill:Hide()
-                f.bg:Hide()
-                -- Position pips left to right
-                for p = 1, n do
-                    local pip = f.pips[p]
-                    pip:SetSize(ps,ps)
-                    pip:SetPoint("LEFT",f,"LEFT",(p-1)*(ps+gap),0)
-                    pip:Show()
+                f.bar:Hide()
+                local ps, gap = cfg.pipSize or 18, cfg.pipGap or 4
+                -- Derive pip count from live game max; cfg.maxPips is a manual override
+                local liveMax
+                if cfg.powerType == MAELSTROM_WEAPON then
+                    liveMax = 10
+                else
+                    liveMax = GetPowerMax(ResolveUnit(cfg.unit), cfg.powerType) or 10
                 end
-                f.label:SetText(cfg.showLabel and (cfg.label or "") or "")
-            else
-                -- Continuous bar
-                local w = cfg.w or 200; local h = cfg.h or 20
-                f:SetSize(w,h)
-                f.fill:Show()
-                f.bg:Show()
-                f.fill:SetColorTexture(cfg.r or 0.2, cfg.g or 0.6, cfg.b or 1, 0.9)
-                f.bg:SetColorTexture(cfg.bgR or 0.1, cfg.bgG or 0.1, cfg.bgB or 0.1, 0.8)
-                f.label:SetText(cfg.showLabel and (cfg.label or "") or "")
-            end
-            f:Show()
-        end
-    end
-end
-API.RebuildLiveBars = RebuildLiveBars
-
--- ── Bar update logic ─────────────────────────────────────────────────────────
--- Called from power events instead of OnUpdate to avoid taint and nil returns.
--- UNIT_POWER_FREQUENT is the correct event for addon resource bars in WoW.
-local function UpdateAllBars()
-    if not resourceBarsEnabled then return end
-    for i = 1, MAX_BARS do
-        local f   = barFrames[i]
-        local cfg = barConfigs[i]
-        if not (f and f:IsShown() and cfg and cfg.enabled) then break end
-
-        local pt   = cfg.powerType
-        local unit = cfg.unit or "player"
-        local cur, max
-        if pt == 20 then
-            -- Stagger: use UnitStagger (only valid for player)
-            cur = UnitStagger(unit) or 0
-            max = UnitHealthMax(unit) or 1
-        else
-            cur = UnitPower(unit, pt)
-            max = UnitPowerMax(unit, pt)
-        end
-        -- Sanitise: force to plain numbers, discarding any taint
-        cur = cur and (cur + 0) or 0
-        max = max and (max + 0) or 1
-        if max <= 0 then max = 1 end
-
-        -- Wrap arithmetic in pcall so any residual taint cannot error-spam
-        pcall(function()
-            if cfg.isPip then
-                local n = cfg.maxPips or 5
-                for p = 1, n do
-                    local pip = f.pips[p]
-                    if pip then
-                        if p <= cur then
-                            pip:SetVertexColor(cfg.r or 1, cfg.g or 0.8, cfg.b or 0.1, 1)
-                        else
-                            pip:SetVertexColor(0.3, 0.3, 0.3, 0.5)
-                        end
+                local n = (cfg.maxPips and cfg.maxPips > 0) and cfg.maxPips or liveMax
+                n = math.max(1, math.min(n, 20))
+                -- Grow pip pool if needed
+                if #f.pips < n then
+                    for p = #f.pips + 1, n do
+                        f.pips[p] = f:CreateTexture(nil, "ARTWORK")
                     end
                 end
-                f.value:SetText(cfg.showValue and (math.floor(cur) .. "/" .. n) or "")
+                -- Shape-aware pip dimensions
+                local shape = PIP_SHAPE_INDEX[cfg.pipShape or "square"]
+                local pw = ps  -- pip width
+                local ph = ps  -- pip height
+                if shape and shape.wide then pw = ps * 2; ph = math.max(8, ps / 2)
+                elseif shape and shape.thin then pw = math.max(4, ps / 3); ph = ps end
+                f:SetSize(n * (pw + gap) - gap, ph)
+                for p = 1, 20 do
+                    if p <= n then
+                        f.pips[p]:SetSize(pw, ph)
+                        f.pips[p]:SetPoint("LEFT", f, "LEFT", (p-1)*(pw+gap), 0)
+                        ApplyPipShape(f.pips[p], cfg.pipShape)
+                    elseif f.pips[p] then
+                        f.pips[p]:ClearAllPoints()
+                        f.pips[p]:Hide()
+                    end
+                end
             else
-                local frac = cur / max
-                local totalW = f:GetWidth()
-                f.fill:SetWidth(math.max(1, totalW * frac))
-                f.value:SetText(cfg.showValue and (math.floor(cur) .. "/" .. math.floor(max)) or "")
+                f.bar:Show()
+                f:SetSize(cfg.w or 200, cfg.h or 20)
+                f.bg:SetColorTexture(cfg.bgR or 0.1, cfg.bgG or 0.1, cfg.bgB or 0.1, 0.8)
+                for p=1,20 do if f.pips[p] then f.pips[p]:Hide() end end
             end
-        end)
+            f:Show()
+            RefreshBar(i)
+        else
+            f:Hide()
+        end
     end
 end
-API.UpdateAllBars = UpdateAllBars
-
--- ── Event-driven power updates ────────────────────────────────────────────────
--- Replace OnUpdate polling with WoW power events — guaranteed non-nil, no taint.
-updateFrame:RegisterEvent("UNIT_POWER_FREQUENT")
-updateFrame:RegisterEvent("UNIT_MAXPOWER")
-updateFrame:RegisterEvent("UNIT_HEALTH")
-updateFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-updateFrame:SetScript("OnEvent", function(self, event, unit)
-    -- Filter to player-only events; PLAYER_ENTERING_WORLD has no unit arg
-    -- Allow updates for any tracked unit (player, party members, target, focus)
-    if unit ~= nil then
-        local tracked = false
-        for i = 1, MAX_BARS do
-            local cfg = barConfigs[i]
-            if cfg and cfg.enabled and (cfg.unit or "player") == unit then
-                tracked = true; break
-            end
-        end
-        if not tracked then return end
-    end
-    UpdateAllBars()
-end)
+API.RebuildLiveBars           = RebuildBars
+API.barConfigs                = barConfigs
+API.MAELSTROM_WEAPON          = MAELSTROM_WEAPON
+API.MAELSTROM_WEAPON_SPELL_ID = MAELSTROM_WEAPON_SPELL_ID
+API.MAELSTROM_WEAPON_SPELL_ID_OLD = MAELSTROM_WEAPON_SPELL_ID_OLD
+API.SPEC_POWERS               = SPEC_POWERS
 
 -- ── Layout handle provider ────────────────────────────────────────────────────
 API.RegisterLayoutHandles(function()
@@ -367,13 +300,22 @@ API.RegisterLayoutHandles(function()
         if f and f:IsShown() and cfg and cfg.enabled then
             local ox = cfg.x or 0; local oy = cfg.y or -200
             table.insert(handles, {
-                label       = "Bar " .. i .. ": " .. (cfg.label or ""),
-                iconTex     = "Interface\\Icons\\inv_misc_coin_01",
-                ox          = ox, oy = oy,
-                liveFrameRef= f,
-                saveCallback= function(nx, ny)
+                label        = "Bar " .. i .. (cfg.label ~= "" and cfg.label and (": " .. cfg.label) or ""),
+                iconTex      = "Interface\\Icons\\inv_misc_coin_01",
+                ox           = ox, oy = oy,
+                liveFrameRef = f,
+                saveCallback = function(nx, ny)
                     cfg.x = nx; cfg.y = ny
-                    if BuffAlertDB then API.SaveSpecProfile() end
+                    if BuffAlertDB and API.SaveSpecProfile then API.SaveSpecProfile() end
+                end,
+                resizeCallback = function(nw, nh)
+                    cfg.w = math.floor(nw + 0.5)
+                    cfg.h = math.floor(nh + 0.5)
+                    f:SetSize(cfg.w, cfg.h)
+                    if BuffAlertDB and API.SaveSpecProfile then API.SaveSpecProfile() end
+                    -- Refresh UI edit boxes if open
+                    local wEdit = _G["CSBar"..i.."W"]; if wEdit then wEdit:SetText(tostring(cfg.w)) end
+                    local hEdit = _G["CSBar"..i.."H"]; if hEdit then hEdit:SetText(tostring(cfg.h)) end
                 end,
             })
         end
@@ -381,19 +323,64 @@ API.RegisterLayoutHandles(function()
     return handles
 end)
 
--- ── Slash command ─────────────────────────────────────────────────────────────
-SLASH_CSBARS1 = "/csbars"
-SlashCmdList["CSBARS"] = function()
-    local mainFrame = _G["MidnightQoLMainFrame"]
-    if mainFrame then mainFrame:Show() end
-    -- Activate Resources tab if available
-    local tabRegistry = API.GetTabRegistry and API.GetTabRegistry()
-    if tabRegistry then
-        for i, t in ipairs(tabRegistry) do
-            if t.label == "Resources" then
-                if API.ActivateTabByIndex then API.ActivateTabByIndex(i) end
-                return
+-- ── Event Registry ───────────────────────────────────────────────────────────
+local Events = CreateFrame("Frame")
+Events:RegisterEvent("PLAYER_ENTERING_WORLD")
+Events:RegisterEvent("UNIT_POWER_UPDATE")
+Events:RegisterEvent("UNIT_MAXPOWER")
+Events:RegisterEvent("UNIT_AURA")           -- for Maelstrom Weapon stacks
+Events:RegisterEvent("GROUP_ROSTER_UPDATE")
+
+Events:SetScript("OnEvent", function(self, event, unit)
+    if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
+        wipe(roleUnitCache)
+        for _, u in ipairs({"player","party1","party2","party3","party4"}) do
+            if UnitExists(u) then
+                local r = UnitGroupRolesAssigned(u)
+                if r and r ~= "NONE" then roleUnitCache["role:"..r] = u end
+            end
+        end
+        if event == "PLAYER_ENTERING_WORLD" then RebuildBars() end
+    end
+
+    for i = 1, MAX_BARS do
+        local cfg = barConfigs[i]
+        if cfg and cfg.enabled then
+            if not unit or unit == ResolveUnit(cfg.unit) then
+                RefreshBar(i)
             end
         end
     end
-end
+end)
+
+-- Smooth update for things like Energy/Mana regen
+local elapsedTotal = 0
+Events:SetScript("OnUpdate", function(self, elapsed)
+    elapsedTotal = elapsedTotal + elapsed
+    if elapsedTotal < 0.05 then return end
+    elapsedTotal = 0
+    for i = 1, MAX_BARS do RefreshBar(i) end
+end)
+
+-- ── Profile Integration ──────────────────────────────────────────────────────
+local CHI_TYPE = Enum.PowerType.Chi  -- 12
+
+API.RegisterProfileCallbacks(
+    function(p) p.resourceBars = {} for i=1,MAX_BARS do if barConfigs[i] then p.resourceBars[i] = CopyTable(barConfigs[i]) end end end,
+    function(p)
+        for i=1,MAX_BARS do barConfigs[i] = p.resourceBars and p.resourceBars[i] or nil end
+        -- Migration: Brewmaster (268) should never have Chi — replace with Stagger
+        if API.currentSpecID == 268 then
+            for i=1,MAX_BARS do
+                local cfg = barConfigs[i]
+                if cfg and cfg.powerType == CHI_TYPE then
+                    cfg.powerType = STAGGER
+                    cfg.isPip     = false
+                    cfg.isBar     = true
+                end
+            end
+        end
+        if BuffAlertDB then resourceBarsEnabled = BuffAlertDB.resourceBarsEnabled ~= false end
+        RebuildBars()
+    end
+)

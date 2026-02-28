@@ -473,6 +473,70 @@ local function CreateSpellSelectorButton(parent, name, auraType, idInputRef)
     return btn
 end
 
+-- ============================================================
+-- Shared Simple Dropdown (replaces removed EasyMenu)
+-- Usage: local dd = API.CreateSimpleDropdown(parent, name, items, width)
+--   items = { {label="Text", value=anyValue}, ... }
+--   dd:Open(anchorFrame, onSelect)  -- onSelect(item)
+-- ============================================================
+local function CreateSimpleDropdown(parent, name, items, width)
+    local popup = CreateFrame("Frame", name, UIParent, "BackdropTemplate")
+    popup:SetFrameStrata("TOOLTIP")
+    popup:SetBackdrop({
+        bgFile   = "Interface/DialogFrame/UI-DialogBox-Background",
+        edgeFile = "Interface/DialogFrame/UI-DialogBox-Border",
+        tile = true, tileSize = 16, edgeSize = 16,
+        insets = {left = 4, right = 4, top = 4, bottom = 4}
+    })
+    popup:SetBackdropColor(0.08, 0.08, 0.12, 0.98)
+    popup:Hide()
+
+    local ROW_H = 22
+    local W = (width or 120)
+    popup:SetWidth(W + 16)
+
+    local rows = {}
+    local function Rebuild(newItems, onSelect)
+        for _, r in ipairs(rows) do r:Hide() end
+        for i, item in ipairs(newItems) do
+            local r = rows[i]
+            if not r then
+                r = CreateFrame("Button", nil, popup)
+                r:SetHeight(ROW_H)
+                local hl = r:CreateTexture(nil, "HIGHLIGHT")
+                hl:SetAllPoints(); hl:SetColorTexture(1, 1, 1, 0.12)
+                local lbl = r:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+                lbl:SetPoint("LEFT", 6, 0); lbl:SetJustifyH("LEFT")
+                r.lbl = lbl
+                rows[i] = r
+            end
+            r:SetWidth(W)
+            r:SetPoint("TOPLEFT", 8, -8 - (i - 1) * ROW_H)
+            r.lbl:SetText(item.label)
+            r.itemData = item
+            r:SetScript("OnClick", function(self)
+                popup:Hide()
+                if onSelect then onSelect(self.itemData) end
+            end)
+            r:Show()
+        end
+        popup:SetHeight(8 + #newItems * ROW_H + 8)
+    end
+
+    popup.Open = function(self, anchorFrame, currentItems, onSelect)
+        if popup:IsShown() and popup.anchor == anchorFrame then
+            popup:Hide(); return
+        end
+        popup.anchor = anchorFrame
+        Rebuild(currentItems or items, onSelect)
+        popup:ClearAllPoints()
+        popup:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -2)
+        popup:Show()
+    end
+
+    return popup
+end
+
 -- ── Publish to API ─────────────────────────────────────────────────────────────
 API.CreateSoundSelectorButton = CreateSoundSelectorButton
 API.CreateImageSelectorButton = CreateImageSelectorButton
@@ -480,3 +544,4 @@ API.CreateSpellSelectorButton = CreateSpellSelectorButton
 API.OpenSoundPicker           = OpenSoundPicker
 API.OpenImagePicker           = OpenImagePicker
 API.OpenSpellPicker           = OpenSpellPicker
+API.CreateSimpleDropdown      = CreateSimpleDropdown

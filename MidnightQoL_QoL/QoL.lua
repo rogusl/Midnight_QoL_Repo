@@ -333,18 +333,38 @@ barsEvents:SetScript("OnEvent", function(self, event, ...)
 
     elseif event == "CHAT_MSG_ADDON" then
         local prefix, payload, channel, sender = ...
-        if prefix ~= BREAK_CHANNEL then return end
+        if prefix ~= BREAK_CHANNEL and prefix ~= "D4" then return end
         local myName = UnitName("player")
         if sender and myName and (sender==myName or sender:sub(1,#myName+1)==myName.."-") then return end
-        local cmd, val = payload:match("^(%w+):(%d+)$")
-        if cmd == "START" then
-            local secs = tonumber(val)
-            if secs and secs > 0 then
-                StartBreakBar(secs)
-                local mins = math.floor(secs/60); local secsRem = secs%60
-                local timeStr = secsRem>0 and string.format("%d:%02d",mins,secsRem) or (mins.." min")
-                print("|cFF00CCFF[MidnightQoL]|r "..tostring(sender).." started a "..timeStr.." break.")
+
+        -- Handle our own CS_BREAK protocol
+        if prefix == BREAK_CHANNEL then
+            local cmd, val = payload:match("^(%w+):(%d+)$")
+            if cmd == "START" then
+                local secs = tonumber(val)
+                if secs and secs > 0 then
+                    StartBreakBar(secs)
+                    local mins = math.floor(secs/60); local secsRem = secs%60
+                    local timeStr = secsRem>0 and string.format("%d:%02d",mins,secsRem) or (mins.." min")
+                    print("|cFF00CCFF[MidnightQoL]|r "..tostring(sender).." started a "..timeStr.." break.")
+                end
             end
+            return
+        end
+
+        -- Handle DBM/BigWigs shared D4 protocol: "BT\t<seconds>"
+        if prefix == "D4" then
+            local breakSecs = payload:match("^BT\t(%d+)")
+            if breakSecs then
+                local secs = tonumber(breakSecs)
+                if secs and secs > 0 then
+                    StartBreakBar(secs)
+                    local mins = math.floor(secs/60); local secsRem = secs%60
+                    local timeStr = secsRem>0 and string.format("%d:%02d",mins,secsRem) or (mins.." min")
+                    print("|cFF00CCFF[MidnightQoL]|r "..tostring(sender).." started a "..timeStr.." break (via DBM).")
+                end
+            end
+            return
         end
     end
 end)

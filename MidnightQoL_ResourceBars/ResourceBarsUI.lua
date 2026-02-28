@@ -48,7 +48,8 @@ local POWER_ENTRIES = {
     {name="Fury",          type=17},
     {name="Pain",          type=18},
     {name="Essence",       type=19},
-    {name="Stagger",        type=20},
+    {name="Stagger",            type=20},
+    {name="Maelstrom Weapon",   type=21},  -- Enhancement Shaman buff (spell 53817)
 }
 
 local function PowerTypeName(pt)
@@ -96,15 +97,87 @@ pdScroll:SetPoint("TOPLEFT",8,-8); pdScroll:SetPoint("BOTTOMRIGHT",-28,8)
 local pdContent=CreateFrame("Frame","CSResPowerDropContent",pdScroll)
 pdContent:SetSize(140,1); pdScroll:SetScrollChild(pdContent)
 
-local function OpenPowerDrop(anchorBtn, onSelect)
+-- Returns only power types valid for a given unit token by checking UnitPowerMax.
+-- Stagger (type 20) is a special case — it's not queryable via UnitPowerMax so we
+-- check UnitStagger instead and only include it for the player (monks only).
+-- Returns true if the unit is a party member or role token (not player/target/focus).
+-- WoW only exposes Mana over the network for these units — all other resources
+-- (Energy, Rage, Focus etc) return nil and cannot be tracked.
+local function IsPartyUnit(unit)
+    if not unit then return false end
+    if unit:sub(1,5) == "party" then return true end
+    if unit:sub(1,5) == "role:" then return true end
+    return false
+end
+
+local MANA_ONLY_ENTRIES = {{name="Mana", type=0}}
+
+local function GetFilteredPowerEntries(unit)
+    local isRole  = unit and unit:sub(1,5) == "role:"
+    local isParty = unit and unit:sub(1,5) == "party"
+
+    -- For party/role tokens we can't know the spec, show everything
+    if isRole or isParty then
+        return POWER_ENTRIES
+    end
+
+    -- For the player, filter to only the power types valid for their current spec
+    if unit == "player" then
+        local specID  = API.currentSpecID
+        local allowed = specID and API.SPEC_POWERS and API.SPEC_POWERS[specID]
+
+        if allowed then
+            -- Build a set for O(1) lookup
+            local allowedSet = {}
+            for _, pt in ipairs(allowed) do allowedSet[pt] = true end
+
+            local filtered = {}
+            for _, entry in ipairs(POWER_ENTRIES) do
+                if allowedSet[entry.type] then
+                    filtered[#filtered+1] = entry
+                end
+            end
+            if #filtered > 0 then return filtered end
+        end
+
+        -- Fallback if spec unknown: use UnitPowerMax heuristic
+        local _, classFile = UnitClass("player")
+        local filtered = {}
+        for _, entry in ipairs(POWER_ENTRIES) do
+            local valid = false
+            if entry.type == 20 then  -- Stagger: show for any Monk
+                valid = (classFile == "MONK")
+            elseif entry.type == 21 then  -- Maelstrom Weapon: Shaman only
+                valid = (classFile == "SHAMAN")
+            elseif entry.type == 12 then  -- Chi: only if UnitPowerMax says it exists
+                -- This correctly returns 0 for Brewmaster, so Chi won't show for them
+                local maxVal = UnitPowerMax("player", entry.type)
+                valid = maxVal and maxVal > 0
+            elseif entry.type == 0 or entry.type == 3 then
+                valid = true  -- always show Mana and Energy for spec-swap safety
+            else
+                local maxVal = UnitPowerMax("player", entry.type)
+                valid = maxVal and maxVal > 0
+            end
+            if valid then filtered[#filtered+1] = entry end
+        end
+        if #filtered > 0 then return filtered end
+    end
+
+    -- Fallback for target/focus or unknown: show all
+    return POWER_ENTRIES
+end
+
+local function OpenPowerDrop(anchorBtn, unit, onSelect)
     if powerDropPopup:IsShown() and powerDropPopup.anchor==anchorBtn then
         powerDropPopup:Hide(); return
     end
     powerDropPopup.anchor=anchorBtn
     -- Clear old rows
     for _,c in ipairs({pdContent:GetChildren()}) do c:Hide() end
+    local entries = GetFilteredPowerEntries(unit or "player")
     local ROW_H=22
-    for i,entry in ipairs(POWER_ENTRIES) do
+    for i,entry in ipairs(entries) do
         local btn=CreateFrame("Button",nil,pdContent)
         btn:SetSize(135,ROW_H); btn:SetPoint("TOPLEFT",0,-(i-1)*ROW_H)
         local hl=btn:CreateTexture(nil,"HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1,1,1,0.12)
@@ -116,40 +189,98 @@ local function OpenPowerDrop(anchorBtn, onSelect)
             powerDropPopup:Hide()
         end)
     end
-    pdContent:SetHeight(#POWER_ENTRIES*ROW_H)
+    pdContent:SetHeight(#entries*ROW_H)
+    -- Resize popup height to fit entries (capped at 250)
+    powerDropPopup:SetHeight(math.min(250, #entries*ROW_H + 16))
     powerDropPopup:ClearAllPoints(); powerDropPopup:SetPoint("TOPLEFT",anchorBtn,"BOTTOMLEFT",0,-4)
     powerDropPopup:Show()
 end
 
 -- ── Per-bar row factory ───────────────────────────────────────────────────────
--- Layout: each row is 140px tall, with 3 explicit sub-rows at fixed Y offsets.
+-- Layout: each row is 175px tall, with 4 explicit sub-rows at fixed Y offsets.
 --   Sub-row 1 (y=  0): [✓] Bar N: [Power▼]  ○Bar ○Pips
 --   Sub-row 2 (y=-30): Unit: [Player▼]  W:[___] H:[___]  Pips:[_] PipSz:[_]  Fill:■ BG:■
 --   Sub-row 3 (y=-58): Label:[__________]  ✓Show label  ✓Show value
+--   Sub-row 3 (y=-66): ✓Show label  [label text]  ✓Show value  Fill: [swatch]  Bg: [swatch]
 local ROW_H  = 140
 local ROW_Y0 = -70   -- y of first row's sub-row 1 relative to contentFrame TOPLEFT
 
--- Unit entries for the unit selector dropdown
-local UNIT_ENTRIES = {
-    {name="Player",          unit="player"},
-    {name="Target",          unit="target"},
-    {name="Focus",           unit="focus"},
-    {name="Party 1 (Healer)",unit="party1"},
-    {name="Party 2",         unit="party2"},
-    {name="Party 3",         unit="party3"},
-    {name="Party 4",         unit="party4"},
+-- Base unit token list. Names are resolved dynamically at open-time using UnitName().
+-- Role tokens (role:HEALER etc) are shown as a section at the top for convenience.
+local ROLE_UNIT_TOKENS = {
+    {unit="role:HEALER",  fallback="Group Healer",  isRole=true},
+    {unit="role:TANK",    fallback="Group Tank",    isRole=true},
+    {unit="role:DAMAGER", fallback="Group DPS",     isRole=true},
+}
+local UNIT_TOKENS = {
+    {unit="player",  fallback="Player"},
+    {unit="target",  fallback="Target"},
+    {unit="focus",   fallback="Focus"},
+    {unit="party1",  fallback="Party 1"},
+    {unit="party2",  fallback="Party 2"},
+    {unit="party3",  fallback="Party 3"},
+    {unit="party4",  fallback="Party 4"},
 }
 
--- Shared unit dropdown popup (same approach as power dropdown)
+-- Returns the display label for a unit token, e.g. "Tiny (party3)"
+-- Safely retrieve a unit name, returning nil if the value is tainted or empty.
+-- UnitName can return a tainted string in combat; any comparison against it
+-- outside a pcall will crash, so we isolate the call and comparisons here.
+local function SafeUnitName(unit)
+    local ok, name = pcall(function()
+        local n = UnitName(unit)
+        if n and n ~= "" and n ~= "Unknown" then return n end
+        return nil
+    end)
+    return ok and name or nil
+end
+
+local function GetUnitLabel(token, fallback, isRole)
+    if isRole then
+        local slots = {"player","party1","party2","party3","party4"}
+        local roleName = token:match("role:(.+)")
+        for _, u in ipairs(slots) do
+            local roleOk, role = pcall(UnitGroupRolesAssigned, u)
+            if roleOk and UnitExists(u) and role == roleName then
+                local name = SafeUnitName(u)
+                if name then return fallback .. " (" .. name .. ")" end
+            end
+        end
+        return fallback .. " (none)"
+    end
+    local name = SafeUnitName(token)
+    if name then
+        if token == "player" then return name end
+        return name .. " (" .. token .. ")"
+    end
+    return fallback
+end
+
+-- Returns the saved display name for a unit token (used to refresh button text)
+local function GetUnitDisplayName(unit)
+    for _, e in ipairs(ROLE_UNIT_TOKENS) do
+        if e.unit == unit then
+            return GetUnitLabel(e.unit, e.fallback, true)
+        end
+    end
+    for _, e in ipairs(UNIT_TOKENS) do
+        if e.unit == unit then
+            return GetUnitLabel(e.unit, e.fallback, false)
+        end
+    end
+    return unit
+end
+
+-- Shared unit dropdown popup
 local unitDropPopup = CreateFrame("Frame","CSResUnitDrop",UIParent,"BackdropTemplate")
-unitDropPopup:SetSize(180,180); unitDropPopup:SetFrameStrata("TOOLTIP")
+unitDropPopup:SetSize(200,180); unitDropPopup:SetFrameStrata("TOOLTIP")
 unitDropPopup:SetBackdrop({bgFile="Interface/DialogFrame/UI-DialogBox-Background",
     edgeFile="Interface/DialogFrame/UI-DialogBox-Border",
     tile=true,tileSize=16,edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
 unitDropPopup:SetBackdropColor(0.08,0.08,0.12,0.98); unitDropPopup:Hide()
 
 local udContent=CreateFrame("Frame","CSResUnitDropContent",unitDropPopup)
-udContent:SetSize(160,1)
+udContent:SetSize(180,1)
 local udScroll=CreateFrame("ScrollFrame","CSResUnitDropScroll",unitDropPopup,"UIPanelScrollFrameTemplate")
 udScroll:SetPoint("TOPLEFT",8,-8); udScroll:SetPoint("BOTTOMRIGHT",-28,8)
 udScroll:SetScrollChild(udContent)
@@ -161,19 +292,57 @@ local function OpenUnitDrop(anchorBtn, onSelect)
     unitDropPopup.anchor=anchorBtn
     for _,c in ipairs({udContent:GetChildren()}) do c:Hide() end
     local ROW=22
-    for idx,entry in ipairs(UNIT_ENTRIES) do
-        local btn=CreateFrame("Button",nil,udContent)
-        btn:SetSize(155,ROW); btn:SetPoint("TOPLEFT",0,-(idx-1)*ROW)
-        local hl=btn:CreateTexture(nil,"HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1,1,1,0.12)
-        local lbl=btn:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-        lbl:SetPoint("LEFT",4,0); lbl:SetText(entry.name)
-        local capE=entry
-        btn:SetScript("OnClick",function()
-            onSelect(capE.unit, capE.name)
-            unitDropPopup:Hide()
-        end)
+    -- Build list dynamically.
+    -- Section 1: role-based tokens (shown whenever in a group)
+    local entries = {}
+    local inGroup = IsInGroup()
+    if inGroup then
+        for _, e in ipairs(ROLE_UNIT_TOKENS) do
+            entries[#entries+1] = {
+                unit    = e.unit,
+                display = GetUnitLabel(e.unit, e.fallback, true),
+            }
+        end
+        -- Separator entry (non-clickable divider label)
+        entries[#entries+1] = {unit=nil, display="── Specific Unit ──", isSep=true}
     end
-    udContent:SetHeight(#UNIT_ENTRIES*ROW)
+    -- Section 2: specific unit tokens; only include occupied party slots
+    for _, e in ipairs(UNIT_TOKENS) do
+        local isParty = e.unit:sub(1,5) == "party"
+        if not isParty or UnitExists(e.unit) then
+            entries[#entries+1] = {
+                unit    = e.unit,
+                display = GetUnitLabel(e.unit, e.fallback, false),
+            }
+        end
+    end
+    for idx, entry in ipairs(entries) do
+        if entry.isSep then
+            -- Non-clickable divider
+            local sep = CreateFrame("Frame",nil,udContent)
+            sep:SetSize(175,ROW); sep:SetPoint("TOPLEFT",0,-(idx-1)*ROW)
+            local lbl=sep:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+            lbl:SetPoint("LEFT",4,0); lbl:SetTextColor(0.5,0.5,0.5,1); lbl:SetText(entry.display)
+        else
+            local btn=CreateFrame("Button",nil,udContent)
+            btn:SetSize(175,ROW); btn:SetPoint("TOPLEFT",0,-(idx-1)*ROW)
+            local hl=btn:CreateTexture(nil,"HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1,1,1,0.12)
+            local lbl=btn:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+            lbl:SetPoint("LEFT",4,0)
+            -- Role entries get a subtle gold tint to stand out
+            if entry.unit and entry.unit:sub(1,5) == "role:" then
+                lbl:SetTextColor(1, 0.85, 0.3, 1)
+            end
+            lbl:SetText(entry.display)
+            local capE=entry
+            btn:SetScript("OnClick",function()
+                onSelect(capE.unit, capE.display)
+                unitDropPopup:Hide()
+            end)
+        end
+    end
+    udContent:SetHeight(#entries*ROW)
+    unitDropPopup:SetHeight(math.min(250, #entries*ROW + 16))
     unitDropPopup:ClearAllPoints()
     unitDropPopup:SetPoint("TOPLEFT",anchorBtn,"BOTTOMLEFT",0,-4)
     unitDropPopup:Show()
@@ -239,10 +408,10 @@ local function CreateBarRow(i)
     hEdit:SetPoint("LEFT",hLbl,"RIGHT",2,0); hEdit:SetText("20")
 
     local pipCntLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    pipCntLbl:SetPoint("LEFT",hEdit,"RIGHT",8,0); pipCntLbl:SetText("Pips:")
+    pipCntLbl:SetPoint("LEFT",hEdit,"RIGHT",8,0); pipCntLbl:SetText("Pips(0=auto):")
     local pipCountEdit = CreateFrame("EditBox","CSBar"..i.."PipCount",contentFrame,"InputBoxTemplate")
     pipCountEdit:SetSize(28,18); pipCountEdit:SetAutoFocus(false); pipCountEdit:SetMaxLetters(3)
-    pipCountEdit:SetPoint("LEFT",pipCntLbl,"RIGHT",2,0); pipCountEdit:SetText("5")
+    pipCountEdit:SetPoint("LEFT",pipCntLbl,"RIGHT",2,0); pipCountEdit:SetText("0")
 
     local pipSzLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     pipSzLbl:SetPoint("LEFT",pipCountEdit,"RIGHT",8,0); pipSzLbl:SetText("Sz:")
@@ -277,15 +446,37 @@ local function CreateBarRow(i)
     local svLbl=contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     svLbl:SetPoint("LEFT",showValueCb,"RIGHT",2,0); svLbl:SetText("Show value")
 
+    -- Shape dropdown sits on row 3 to avoid crowding row 2
+    local pipShapeLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    pipShapeLbl:SetPoint("LEFT",svLbl,"RIGHT",16,0); pipShapeLbl:SetText("Pip shape:")
+    local pipShapeBtn = CreateFrame("Button","CSBar"..i.."PipShape",contentFrame,"UIPanelButtonTemplate")
+    pipShapeBtn:SetSize(80,18); pipShapeBtn:SetPoint("LEFT",pipShapeLbl,"RIGHT",4,0)
+    pipShapeBtn:SetText("■ Square"); pipShapeBtn.shapeKey = "square"
+
+    local shapeDropItems = {}
+    for _, s in ipairs(API.PIP_SHAPES or {}) do
+        shapeDropItems[#shapeDropItems+1] = {label=s.label, value=s.key}
+    end
+    local shapeDrop = API.CreateSimpleDropdown(contentFrame, "CSPipShapeDrop"..i, shapeDropItems, 80)
+
+    pipShapeBtn:SetScript("OnClick", function(self)
+        shapeDrop:Open(self, shapeDropItems, function(item)
+            self.shapeKey = item.value
+            self:SetText(item.label)
+        end)
+    end)
+
     -- ── Dropdown wire-ups ─────────────────────────────────────────────────────
     powerBtn:SetScript("OnClick",function(self)
-        OpenPowerDrop(self,function(pt,ptName)
+        local currentUnit = unitBtn.unit or "player"
+        OpenPowerDrop(self, currentUnit, function(pt,ptName)
             self.powerType=pt; self:SetText(ptName)
         end)
     end)
     unitBtn:SetScript("OnClick",function(self)
-        OpenUnitDrop(self,function(unit,unitName)
-            self.unit=unit; self:SetText(unitName)
+        OpenUnitDrop(self,function(unit, displayName)
+            self.unit=unit; self:SetText(displayName)
+            powerBtn.powerType=nil; powerBtn:SetText("(select power)")
         end)
     end)
 
@@ -294,13 +485,13 @@ local function CreateBarRow(i)
         barRadio=barRadio, pipRadio=pipRadio,
         wEdit=wEdit, hEdit=hEdit,
         pipCountEdit=pipCountEdit, pipSizeEdit=pipSizeEdit,
+        pipShapeBtn=pipShapeBtn,
         fillSwatch=fillSwatch, bgSwatch=bgSwatch,
         labelEdit=labelEdit, showLabelCb=showLabelCb, showValueCb=showValueCb,
         _sep=sep,
-        -- Font strings and extra labels stored for show/hide
         _fontStrings={barLbl, barRadioLbl, pipRadioLbl, unitLbl,
                       wLbl, hLbl, pipCntLbl, pipSzLbl, fillColLbl, bgColLbl, labelLbl,
-                      slLbl, svLbl},
+                      pipShapeLbl, slLbl, svLbl},
     }
 end
 
@@ -327,7 +518,7 @@ local function SetRowVisible(i, visible)
     -- so we show/hide the individual frames we have references to.
     local frames = {
         w.enableCb, w.powerBtn, w.unitBtn, w.barRadio, w.pipRadio,
-        w.wEdit, w.hEdit, w.pipCountEdit, w.pipSizeEdit,
+        w.wEdit, w.hEdit, w.pipCountEdit, w.pipSizeEdit, w.pipShapeBtn,
         w.fillSwatch, w.bgSwatch, w.labelEdit, w.showLabelCb, w.showValueCb,
     }
     for _, f in ipairs(frames) do
@@ -335,7 +526,6 @@ local function SetRowVisible(i, visible)
             if visible then f:Show() else f:Hide() end
         end
     end
-    -- Font strings need SetShown (available in WoW's Lua)
     if w._fontStrings then
         for _, fs in ipairs(w._fontStrings) do
             if fs then fs:SetShown(visible) end
@@ -376,7 +566,7 @@ local function HideRow(i)
         w.unitBtn:SetText("Player"); w.unitBtn.unit = "player"
         w.barRadio:SetChecked(true); w.pipRadio:SetChecked(false)
         w.wEdit:SetText("200"); w.hEdit:SetText("20")
-        w.pipCountEdit:SetText("5"); w.pipSizeEdit:SetText("18")
+        w.pipCountEdit:SetText("0"); w.pipSizeEdit:SetText("18")
         w.labelEdit:SetText("")
         w.showLabelCb:SetChecked(true); w.showValueCb:SetChecked(true)
     end
@@ -424,6 +614,7 @@ local function RefreshResourceBarUI()
     end
 
     -- Show/hide rows based on saved data
+    activeRows = savedCount
     for i = 1, MAX_BARS do
         local cfg = barConfigs and barConfigs[i]
         if i <= savedCount then
@@ -431,22 +622,28 @@ local function RefreshResourceBarUI()
         else
             SetRowVisible(i, false)
         end
-        activeRows = savedCount
 
         local w = rowWidgets[i]
         if w and cfg then
             w.enableCb:SetChecked(cfg.enabled ~= false)
-            w.powerBtn:SetText(PowerTypeName(cfg.powerType or 0))
-            w.powerBtn.powerType = cfg.powerType
-            local unitName = "Player"
-            for _,e in ipairs(UNIT_ENTRIES) do if e.unit==(cfg.unit or "player") then unitName=e.name; break end end
-            w.unitBtn:SetText(unitName); w.unitBtn.unit = cfg.unit or "player"
+            -- Ensure powerType is never nil so harvest doesn't silently save 0
+            local pt = cfg.powerType or 0
+            w.powerBtn:SetText(PowerTypeName(pt))
+            w.powerBtn.powerType = pt
+            w.unitBtn:SetText(GetUnitDisplayName(cfg.unit or "player")); w.unitBtn.unit = cfg.unit or "player"
             w.barRadio:SetChecked(not cfg.isPip)
             w.pipRadio:SetChecked(cfg.isPip == true)
             w.wEdit:SetText(tostring(cfg.w or 200))
             w.hEdit:SetText(tostring(cfg.h or 20))
-            w.pipCountEdit:SetText(tostring(cfg.maxPips or 5))
+            w.pipCountEdit:SetText(tostring(cfg.maxPips or 0))
             w.pipSizeEdit:SetText(tostring(cfg.pipSize or 18))
+            if w.pipShapeBtn then
+                local sk = cfg.pipShape or "square"
+                local shapes = API.PIP_SHAPES or {}
+                local lbl = "■ Square"
+                for _, s in ipairs(shapes) do if s.key == sk then lbl = s.label; break end end
+                w.pipShapeBtn:SetText(lbl); w.pipShapeBtn.shapeKey = sk
+            end
             w.labelEdit:SetText(cfg.label or "")
             w.showLabelCb:SetChecked(cfg.showLabel ~= false)
             w.showValueCb:SetChecked(cfg.showValue ~= false)
@@ -458,13 +655,15 @@ local function RefreshResourceBarUI()
                 w.bgSwatch.r=cfg.bgR or 0.1; w.bgSwatch.g=cfg.bgG or 0.1; w.bgSwatch.b=cfg.bgB or 0.1
                 w.bgSwatch.tex:SetColorTexture(w.bgSwatch.r,w.bgSwatch.g,w.bgSwatch.b,1)
             end
+            -- (colours restored above)
         elseif w and not cfg then
             w.enableCb:SetChecked(false)
             w.powerBtn:SetText("(none)"); w.powerBtn.powerType=nil
             w.unitBtn:SetText("Player"); w.unitBtn.unit="player"
             w.barRadio:SetChecked(true); w.pipRadio:SetChecked(false)
             w.wEdit:SetText("200"); w.hEdit:SetText("20")
-            w.pipCountEdit:SetText("5"); w.pipSizeEdit:SetText("18")
+            w.pipCountEdit:SetText("0"); w.pipSizeEdit:SetText("18")
+            if w.pipShapeBtn then w.pipShapeBtn:SetText("■ Square"); w.pipShapeBtn.shapeKey = "square" end
             w.labelEdit:SetText("")
             w.showLabelCb:SetChecked(true); w.showValueCb:SetChecked(true)
         end
@@ -474,21 +673,41 @@ end
 API.RefreshResourceBarUI = RefreshResourceBarUI
 
 -- ── Harvest UI → barConfigs (called by main Save button) ─────────────────────
+-- Only writes to barConfigs if the Resources tab was actually opened this session
+-- (uiDirty flag). If the user never opened the tab, barConfigs already holds the
+-- correct loaded values — don't overwrite them with blank widget defaults.
+local uiDirty = false   -- set true when the Resources tab is activated
+
 local function HarvestResourceBarUI()
+    -- Only skip if no rows have ever been shown (nothing to harvest)
+    local hasVisible = false
+    for i = 1, MAX_BARS do
+        if rowWidgets[i] and rowWidgets[i]._visible then hasVisible = true; break end
+    end
+    if not hasVisible then return end
     local barConfigs = GetBarConfigs()
     if not barConfigs then return end
-    -- Clear all slots first
+    -- Snapshot dragged positions BEFORE clearing so save doesn't snap bars to origin
+    local savedPositions = {}
+    for i = 1, MAX_BARS do
+        if barConfigs[i] then
+            savedPositions[i] = {
+                x      = barConfigs[i].x,
+                y      = barConfigs[i].y,
+                pipGap = barConfigs[i].pipGap,
+            }
+        end
+    end
+    -- Clear all slots then re-harvest from all rows that are currently visible
     for i = 1, MAX_BARS do barConfigs[i] = nil end
-    -- Only harvest visible rows
-    for i = 1, activeRows do
+    for i = 1, MAX_BARS do
         local w = rowWidgets[i]
         if w and w._visible then
-            -- Preserve dragged position and gap from existing config
-            local oldCfg = barConfigs[i]
+            local pos = savedPositions[i]
             barConfigs[i] = {
-                x      = oldCfg and oldCfg.x or 0,
-                y      = oldCfg and oldCfg.y or (-200 - (i-1)*30),
-                pipGap = oldCfg and oldCfg.pipGap or 4,
+                x      = pos and pos.x      or 0,
+                y      = pos and pos.y      or (-200 - (i-1)*30),
+                pipGap = pos and pos.pipGap or 4,
             }
             local cfg = barConfigs[i]
             cfg.enabled   = w.enableCb:GetChecked()
@@ -496,8 +715,9 @@ local function HarvestResourceBarUI()
             cfg.powerType = w.powerBtn.powerType or 0
             cfg.isPip     = w.pipRadio:GetChecked()
             cfg.isBar     = not cfg.isPip
-            cfg.maxPips   = tonumber(w.pipCountEdit:GetText()) or 5
+            cfg.maxPips   = tonumber(w.pipCountEdit:GetText()) or 0  -- 0 = auto from live max
             cfg.pipSize   = tonumber(w.pipSizeEdit:GetText()) or 18
+            cfg.pipShape  = (w.pipShapeBtn and w.pipShapeBtn.shapeKey) or "square"
             cfg.w         = tonumber(w.wEdit:GetText()) or 200
             cfg.h         = tonumber(w.hEdit:GetText()) or 20
             cfg.label     = w.labelEdit:GetText()
@@ -508,6 +728,28 @@ local function HarvestResourceBarUI()
         end
     end
     if API.RebuildLiveBars then API.RebuildLiveBars() end
+
+    -- Seed valueCache for any newly added bars so they show immediately
+    if API.barConfigs and API.valueCache then
+        for i = 1, MAX_BARS do
+            local cfg = API.barConfigs[i]
+            if cfg and cfg.enabled then
+                local unit = cfg.unit or "player"
+                local pt   = cfg.powerType
+                if UnitExists(unit) then
+                    local key = unit .. ":" .. pt
+                    if pt == 20 then  -- POWER_STAGGER
+                        API.valueCache[key] = { cur = UnitStagger and UnitStagger(unit) or 0, max = UnitHealthMax(unit) or 1 }
+                    elseif pt == 21 then  -- MAELSTROM_WEAPON buff
+                        local aura = C_UnitAuras.GetPlayerAuraBySpellID(53817)
+                        API.valueCache[key] = { cur = aura and aura.applications or 0, max = 10 }
+                    else
+                        API.valueCache[key] = { cur = UnitPower(unit, pt) or 0, max = UnitPowerMax(unit, pt) or 1 }
+                    end
+                end
+            end
+        end
+    end
 end
 API.HarvestResourceBarUI = HarvestResourceBarUI
 
@@ -531,6 +773,7 @@ end
 
 -- ── Tab registration ──────────────────────────────────────────────────────────
 local function OnResourcesTabActivate()
+    uiDirty = true
     RefreshResourceBarUI()
 end
 local function OnResourcesTabDeactivate()
