@@ -24,6 +24,7 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
 
+<<<<<<< HEAD
   # JOB 2: Package the addon (only runs when a tag is detected)
   release:
     if: startsWith(github.ref, 'refs/tags/v')
@@ -46,3 +47,18 @@ jobs:
           # These force "Release" status
           CF_RELEASE_TYPE: release
           RELEASE_TYPE: release
+=======
+      - name: Run BigWigs Packager
+        uses: BigWigsMods/packager@master
+        with:
+          # FIXED: Removed -t and -r. 
+          # -n sets the filename of the zip and the label on CurseForge.
+          args: -n "{package-name}-${{ steps.tag_version.outputs.new_tag }}"
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # IMPORTANT: This forces the packager to use the "clean" tag name.
+          # Since the tag doesn't have "alpha" in it, CurseForge will mark it "Release".
+          PACKAGE_VERSION: ${{ steps.tag_version.outputs.new_tag }}
+          PACKAGE_TYPE: release
+>>>>>>> parent of 3debbc3 (Update deploy.yml)
