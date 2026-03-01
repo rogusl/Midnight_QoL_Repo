@@ -1,43 +1,35 @@
-name: Package and Release
-
-on:
-  push:
-    branches:
-      - main
-
 jobs:
   tag-and-release:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Bump version and push tag
-        id: tag_version
+      - name: Create Tag
+        id: tag_action
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
-          release_branches: main
-          # THE NEW FIX: Forces the creation of an annotated tag
-          create_annotated_tag: true 
 
-      - name: Checkout Newly Created Tag
+      # This is the crucial fix: re-checking out the SPECIFIC tag created
+      - name: Checkout Tag
         uses: actions/checkout@v4
         with:
-          ref: ${{ steps.tag_version.outputs.new_tag }}
+          ref: ${{ steps.tag_action.outputs.new_tag }}
           fetch-depth: 0
-          # Added this just as an extra layer of safety to ensure the local runner grabs the tag data
-          fetch-tags: true
 
-      - name: Run BigWigs Packager
+      # Optional: Small pause to let GitHub's backend catch up
+      - name: Wait for propagation
+        run: sleep 10
+
+      - name: Packager
         uses: BigWigsMods/packager@master
         with:
-          args: -g 12.0.1 -n "MidnightQoL_Suite-${{ steps.tag_version.outputs.new_tag }}"
+          args: -g 12.0.1 -n "MidnightQoL_Suite-${{ steps.tag_action.outputs.new_tag }}"
+          pandoc: true
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
