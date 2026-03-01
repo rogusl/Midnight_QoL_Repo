@@ -27,11 +27,13 @@ jobs:
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         with:
-          # FIXED: Changed -r to -t for Release Type
-          # Also using the dynamic tag from the bump step
-          args: -t release -n "MidnightQoL_Suite-${{ steps.tag_version.outputs.new_tag }}"
+          # FIXED: Removed -t and -r. 
+          # -n sets the filename of the zip and the label on CurseForge.
+          args: -n "{package-name}-${{ steps.tag_version.outputs.new_tag }}"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # IMPORTANT: This forces the packager to use the "clean" tag name.
+          # Since the tag doesn't have "alpha" in it, CurseForge will mark it "Release".
           PACKAGE_VERSION: ${{ steps.tag_version.outputs.new_tag }}
           PACKAGE_TYPE: release
