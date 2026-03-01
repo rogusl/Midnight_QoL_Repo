@@ -25,8 +25,7 @@ jobs:
 
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
-        with:
-          args: -r  # Forces "Release" (Green) instead of "Alpha" (Orange)
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CF_RELEASE_TYPE: release  # This force-sets the upload to "Release"
