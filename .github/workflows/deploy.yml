@@ -4,40 +4,45 @@ on:
   push:
     branches:
       - main
+    tags:
+      - 'v*' # This triggers the packager when a tag is created
 
 jobs:
-  tag-and-release:
+  # JOB 1: Create the tag (only runs on push to main)
+  tag-version:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
       - name: Bump version and push tag
-        id: tag_version
         uses: mathieudutour/github-tag-action@v6.2
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
-          release_branches: main
 
-      # Critical: This makes the local git environment aware of the new tag
-      - name: Fetch tags
-        run: git fetch --tags --force
+  # JOB 2: Package the addon (only runs when a tag is detected)
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         with:
-          # -g 12.0.1: Confirmed by your usage log for game-version
-          # -n: Sets the zip filename
-          args: -g 12.0.1 -n "MidnightQoL_Suite-${{ steps.tag_version.outputs.new_tag }}"
+          # -g 12.0.1: Confirmed game version
+          # -n: Using the tag name directly from the trigger
+          args: -g 12.0.1 -n "MidnightQoL_Suite-${{ github.ref_name }}"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # These are the only ways to force "Release" status when no CLI flag exists
-          PACKAGE_VERSION: ${{ steps.tag_version.outputs.new_tag }}
-          RELEASE_TYPE: release
+          # These force "Release" status
           CF_RELEASE_TYPE: release
+          RELEASE_TYPE: release
