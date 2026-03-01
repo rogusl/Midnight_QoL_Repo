@@ -1,8 +1,20 @@
+name: Deploy Release
+
+# This is the section that was missing or empty
+on:
+  push:
+    branches:
+      - main
+
 jobs:
   tag-and-release:
     runs-on: ubuntu-latest
+    # Added permissions to ensure the GITHUB_TOKEN can create tags and releases
+    permissions:
+      contents: write
+    
     steps:
-      - name: Checkout
+      - name: Checkout Code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
@@ -13,21 +25,22 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
+          tag_prefix: v
 
-      # This is the crucial fix: re-checking out the SPECIFIC tag created
-      - name: Checkout Tag
+      - name: Checkout New Tag
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.tag_action.outputs.new_tag }}
           fetch-depth: 0
 
-      # Optional: Small pause to let GitHub's backend catch up
-      - name: Wait for propagation
+      # Helps prevent the "Future Tag" error by giving GitHub 10 seconds to process the new tag
+      - name: Wait for Tag Propagation
         run: sleep 10
 
-      - name: Packager
+      - name: Run Packager
         uses: BigWigsMods/packager@master
         with:
+          # Using the dynamic tag output for the filename
           args: -g 12.0.1 -n "MidnightQoL_Suite-${{ steps.tag_action.outputs.new_tag }}"
           pandoc: true
         env:
