@@ -24,9 +24,12 @@ jobs:
           default_bump: patch
           release_branches: main
 
-      # This ensures the local environment recognizes the tag we just made
-      - name: Fetch tags
-        run: git fetch --tags --force
+      # THE FIX: This forces the local Git HEAD to exactly match the new tag object
+      - name: Checkout Newly Created Tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.tag_version.outputs.new_tag }}
+          fetch-depth: 0
 
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
@@ -37,7 +40,4 @@ jobs:
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # THE KEY FIXES: These force the "Release" status regardless of prepatch status
-          PACKAGE_VERSION: ${{ steps.tag_version.outputs.new_tag }}
-          RELEASE_TYPE: release
-          CF_RELEASE_TYPE: release
+          # The manual release overrides have been removed; BigWigs will natively see this as a Release now!
