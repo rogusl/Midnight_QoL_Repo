@@ -27,13 +27,11 @@ jobs:
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         with:
-          # ADDED -r release: This explicitly tells CurseForge this is a "Release"
-          # UPDATED VERSION: Uses the dynamic tag from the previous step
-          args: -r release -n "{package-name}-${{ steps.tag_version.outputs.new_tag }}"
+          # FIXED: Changed -r to -t for Release Type
+          # Also using the dynamic tag from the bump step
+          args: -t release -n "MidnightQoL_Suite-${{ steps.tag_version.outputs.new_tag }}"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # These ensure the packager recognizes the specific tag context
           PACKAGE_VERSION: ${{ steps.tag_version.outputs.new_tag }}
-          # While PACKAGE_TYPE can work, the -r flag in args is the 'gold standard' for this packager
           PACKAGE_TYPE: release
