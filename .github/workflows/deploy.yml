@@ -27,10 +27,12 @@ jobs:
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         with:
-          # -v forces the internal version string to be clean
-          # -r .release is required when using custom arguments sometimes
-          args: -v v1.0.16 -n "{package-name}-v1.0.16"
+          # Keep the clean naming convention for the zip file
+          args: -n "{package-name}-v1.0.17"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # This overrides the internal version detection completely
+          VERSION: v1.0.17
+          # This tells CurseForge it is a stable release
           PACKAGE_TYPE: release
