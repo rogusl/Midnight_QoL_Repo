@@ -27,12 +27,12 @@ jobs:
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         with:
-          # Keep the clean naming convention for the zip file
+          # This sets the Zip filename
           args: -n "{package-name}-v1.0.17"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # This overrides the internal version detection completely
-          VERSION: v1.0.17
-          # This tells CurseForge it is a stable release
+          # THIS IS THE FIX: It tells the packager the version is clean
+          PACKAGE_VERSION: v1.0.17
+          # Force the release type to 'release' for the CurseForge API
           PACKAGE_TYPE: release
