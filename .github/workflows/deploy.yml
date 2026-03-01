@@ -25,9 +25,7 @@ jobs:
 
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
-        with:
-          args: -n "{package-name}-{project-version}-release"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CF_RELEASE_TYPE: release
+          PACKAGE_TYPE: release  # <--- THIS is the specific variable BigWigs looks for
