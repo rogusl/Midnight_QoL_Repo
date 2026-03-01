@@ -24,16 +24,20 @@ jobs:
           default_bump: patch
           release_branches: main
 
+      # Critical: This makes the local git environment aware of the new tag
+      - name: Fetch tags
+        run: git fetch --tags --force
+
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         with:
-          # FIXED: Removed -t and -r. 
-          # -n sets the filename of the zip and the label on CurseForge.
-          args: -n "{package-name}-${{ steps.tag_version.outputs.new_tag }}"
+          # -g 12.0.1: Confirmed by your usage log for game-version
+          # -n: Sets the zip filename
+          args: -g 12.0.1 -n "MidnightQoL_Suite-${{ steps.tag_version.outputs.new_tag }}"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # IMPORTANT: This forces the packager to use the "clean" tag name.
-          # Since the tag doesn't have "alpha" in it, CurseForge will mark it "Release".
+          # These are the only ways to force "Release" status when no CLI flag exists
           PACKAGE_VERSION: ${{ steps.tag_version.outputs.new_tag }}
-          PACKAGE_TYPE: release
+          RELEASE_TYPE: release
+          CF_RELEASE_TYPE: release
