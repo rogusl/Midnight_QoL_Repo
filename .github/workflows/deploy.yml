@@ -22,14 +22,15 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
-          # This forces the action to use ONLY the version number for the tag
-          append_to_tag: false
-          tag_prefix: v
+          # This is the fix: It tells the action that 'main' should have clean tags
+          release_branches: main
+          # Ensure no suffix is added
+          append_to_tag: false 
 
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # Now that the tag will be "v1.0.13", this will finally stick
+          # This will finally be respected because the version name is now clean
           PACKAGE_TYPE: release
