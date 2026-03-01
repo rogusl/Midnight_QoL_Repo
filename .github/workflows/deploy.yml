@@ -30,7 +30,7 @@ jobs:
       - name: Run Packager
         uses: BigWigsMods/packager@master
         with:
-          args: -g 12.0.1 -t "${{ steps.tag_action.outputs.new_tag }}" -n "MidnightQoL_Suite-${{ steps.tag_action.outputs.new_tag }}"
+          args: -g 12.0.1 -n "MidnightQoL_Suite-${{ steps.tag_action.outputs.new_tag }}"
           pandoc: true
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
