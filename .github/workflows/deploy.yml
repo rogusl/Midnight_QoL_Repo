@@ -26,7 +26,8 @@ jobs:
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         with:
-          args: -t release  # This specifically tells the script: Force Release Type
+          args: -n "{package-name}-{project-version}-release"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CF_RELEASE_TYPE: release
