@@ -1,4 +1,6 @@
-package-as: MidnightQoL
+# Change this to match your CURSEFORGE project slug, 
+# but it must NOT be the same name as your subfolders if you use move-folders.
+package-as: MidnightQoL_Suite
 
 move-folders:
   MidnightQoL: MidnightQoL
