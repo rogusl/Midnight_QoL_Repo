@@ -3,13 +3,13 @@ name: Package and Release
 on:
   push:
     branches:
-      - main  # Make sure this matches your branch name in GitHub Desktop
+      - main
 
 jobs:
   tag-and-release:
     runs-on: ubuntu-latest
     permissions:
-      contents: write 
+      contents: write
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
@@ -22,14 +22,13 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
+          # THIS IS NEW: This ensures the tag is "v1.0.11" instead of "v1.0.11-1-g..."
+          append_to_tag: "" 
 
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
-        with:
-          # -g 12.0.1: Hard-sets the game version
-          # -n: This template forces the label to be clean and stable
-          args: -g 12.0.1 -n "{package-name}-{project-version}"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Now that the tag is clean, this will finally be respected
           PACKAGE_TYPE: release
