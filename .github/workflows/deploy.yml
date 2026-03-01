@@ -1,12 +1,9 @@
-package-as: MidnightQoL
+name: Package and Release
 
-# This tells the packager to move these subfolders to the root of the zip
-move-folders:
-  MidnightQoL: MidnightQoL
-  MidnightQoL_BuffAlerts: MidnightQoL_BuffAlerts
-  MidnightQoL_QoL: MidnightQoL_QoL
-  MidnightQoL_ResourceBars: MidnightQoL_ResourceBars
-  MidnightQoL_Whisper: MidnightQoL_Whisper
+on:
+  push:
+    branches:
+      - main  # Make sure this matches your branch name in GitHub Desktop
 
 ignore:
   - .pkgmeta

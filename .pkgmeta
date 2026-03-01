@@ -1,4 +1,11 @@
-package-as: MidnightQoL_Suite
+package-as: MidnightQoL
+
+move-folders:
+  MidnightQoL: MidnightQoL
+  MidnightQoL_BuffAlerts: MidnightQoL_BuffAlerts
+  MidnightQoL_QoL: MidnightQoL_QoL
+  MidnightQoL_ResourceBars: MidnightQoL_ResourceBars
+  MidnightQoL_Whisper: MidnightQoL_Whisper
 
 ignore:
   - .pkgmeta
