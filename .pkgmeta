@@ -1,11 +1,9 @@
-## CurseForge / BigWigs Packager config
-## Docs: https://github.com/BigWigsMods/packager
-
 package-as: MidnightQoL_Suite
 
 ignore:
   - .pkgmeta
   - .gitignore
+  - .github
   - .git
   - generate_manifests.py
   - generate_manifests.ps1
