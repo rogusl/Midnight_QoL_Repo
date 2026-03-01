@@ -22,15 +22,14 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
-          # This is the fix: It tells the action that 'main' should have clean tags
           release_branches: main
-          # Ensure no suffix is added
-          append_to_tag: false 
 
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
+        with:
+          # This forces the packager to use the CLEAN tag from the step above
+          args: -n "{package-name}-${{ steps.tag_version.outputs.new_tag }}"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # This will finally be respected because the version name is now clean
           PACKAGE_TYPE: release
