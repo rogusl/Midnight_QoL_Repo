@@ -23,21 +23,21 @@ jobs:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           default_bump: patch
           release_branches: main
+          # THE NEW FIX: Forces the creation of an annotated tag
+          create_annotated_tag: true 
 
-      # THE FIX: This forces the local Git HEAD to exactly match the new tag object
       - name: Checkout Newly Created Tag
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.tag_version.outputs.new_tag }}
           fetch-depth: 0
+          # Added this just as an extra layer of safety to ensure the local runner grabs the tag data
+          fetch-tags: true
 
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         with:
-          # -g 12.0.1: Explicitly tells CurseForge this is for the pre-patch
-          # -n: Sets the display name on the CurseForge files tab
           args: -g 12.0.1 -n "MidnightQoL_Suite-${{ steps.tag_version.outputs.new_tag }}"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # The manual release overrides have been removed; BigWigs will natively see this as a Release now!
