@@ -27,12 +27,13 @@ jobs:
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
         with:
-          # This sets the Zip filename
-          args: -n "{package-name}-v1.0.17"
+          # ADDED -r release: This explicitly tells CurseForge this is a "Release"
+          # UPDATED VERSION: Uses the dynamic tag from the previous step
+          args: -r release -n "{package-name}-${{ steps.tag_version.outputs.new_tag }}"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          # THIS IS THE FIX: It tells the packager the version is clean
-          PACKAGE_VERSION: v1.0.17
-          # Force the release type to 'release' for the CurseForge API
+          # These ensure the packager recognizes the specific tag context
+          PACKAGE_VERSION: ${{ steps.tag_version.outputs.new_tag }}
+          # While PACKAGE_TYPE can work, the -r flag in args is the 'gold standard' for this packager
           PACKAGE_TYPE: release
