@@ -25,7 +25,11 @@ jobs:
 
       - name: Run BigWigs Packager
         uses: BigWigsMods/packager@master
+        with:
+          # -g 12.0.1: Hard-sets the game version
+          # -n: This template forces the label to be clean and stable
+          args: -g 12.0.1 -n "{package-name}-{project-version}"
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PACKAGE_TYPE: release  # <--- THIS is the specific variable BigWigs looks for
+          PACKAGE_TYPE: release
