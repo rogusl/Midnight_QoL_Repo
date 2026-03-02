@@ -1,0 +1,28 @@
+name: Package and Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Packager
+        uses: BigWigsMods/packager@master
+        with:
+          # The packager will automatically use the tag name and mark it as 'Release'
+          args: -g 12.0.1 -n "MidnightQoL_Suite-${{ github.ref_name }}"
+          pandoc: true
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          # The standard GITHUB_TOKEN is perfectly fine to use here for uploading the release
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
