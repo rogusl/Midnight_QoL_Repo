@@ -50,6 +50,7 @@ local POWER_ENTRIES = {
     {name="Essence",       type=19},
     {name="Stagger",            type=20},
     {name="Maelstrom Weapon",   type=21},  -- Enhancement Shaman buff (spell 53817)
+    {name="Wild Imps",          type=22},  -- Demonology Warlock (reads Implosion button count)
 }
 
 local function PowerTypeName(pt)
@@ -149,6 +150,8 @@ local function GetFilteredPowerEntries(unit)
                 valid = (classFile == "MONK")
             elseif entry.type == 21 then  -- Maelstrom Weapon: Shaman only
                 valid = (classFile == "SHAMAN")
+            elseif entry.type == 22 then  -- Wild Imps: Demonology Warlock only
+                valid = (classFile == "WARLOCK")
             elseif entry.type == 12 then  -- Chi: only if UnitPowerMax says it exists
                 -- This correctly returns 0 for Brewmaster, so Chi won't show for them
                 local maxVal = UnitPowerMax("player", entry.type)
@@ -450,14 +453,14 @@ local function CreateBarRow(i)
     local pipShapeLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     pipShapeLbl:SetPoint("LEFT",svLbl,"RIGHT",16,0); pipShapeLbl:SetText("Pip shape:")
     local pipShapeBtn = CreateFrame("Button","CSBar"..i.."PipShape",contentFrame,"UIPanelButtonTemplate")
-    pipShapeBtn:SetSize(80,18); pipShapeBtn:SetPoint("LEFT",pipShapeLbl,"RIGHT",4,0)
-    pipShapeBtn:SetText("■ Square"); pipShapeBtn.shapeKey = "square"
+    pipShapeBtn:SetSize(90,18); pipShapeBtn:SetPoint("LEFT",pipShapeLbl,"RIGHT",4,0)
+    pipShapeBtn:SetText("Square"); pipShapeBtn.shapeKey = "square"
 
     local shapeDropItems = {}
     for _, s in ipairs(API.PIP_SHAPES or {}) do
         shapeDropItems[#shapeDropItems+1] = {label=s.label, value=s.key}
     end
-    local shapeDrop = API.CreateSimpleDropdown(contentFrame, "CSPipShapeDrop"..i, shapeDropItems, 80)
+    local shapeDrop = API.CreateSimpleDropdown(contentFrame, "CSPipShapeDrop"..i, shapeDropItems, 90)
 
     pipShapeBtn:SetScript("OnClick", function(self)
         shapeDrop:Open(self, shapeDropItems, function(item)
@@ -640,7 +643,7 @@ local function RefreshResourceBarUI()
             if w.pipShapeBtn then
                 local sk = cfg.pipShape or "square"
                 local shapes = API.PIP_SHAPES or {}
-                local lbl = "■ Square"
+                local lbl = "Square"
                 for _, s in ipairs(shapes) do if s.key == sk then lbl = s.label; break end end
                 w.pipShapeBtn:SetText(lbl); w.pipShapeBtn.shapeKey = sk
             end
@@ -663,7 +666,7 @@ local function RefreshResourceBarUI()
             w.barRadio:SetChecked(true); w.pipRadio:SetChecked(false)
             w.wEdit:SetText("200"); w.hEdit:SetText("20")
             w.pipCountEdit:SetText("0"); w.pipSizeEdit:SetText("18")
-            if w.pipShapeBtn then w.pipShapeBtn:SetText("■ Square"); w.pipShapeBtn.shapeKey = "square" end
+            if w.pipShapeBtn then w.pipShapeBtn:SetText("Square"); w.pipShapeBtn.shapeKey = "square" end
             w.labelEdit:SetText("")
             w.showLabelCb:SetChecked(true); w.showValueCb:SetChecked(true)
         end
@@ -743,6 +746,8 @@ local function HarvestResourceBarUI()
                     elseif pt == 21 then  -- MAELSTROM_WEAPON buff
                         local aura = C_UnitAuras.GetPlayerAuraBySpellID(53817)
                         API.valueCache[key] = { cur = aura and aura.applications or 0, max = 10 }
+                    elseif pt == 22 then  -- WILD_IMPS
+                        API.valueCache[key] = { cur = 0, max = 6 }  -- refreshed by OnUpdate
                     else
                         API.valueCache[key] = { cur = UnitPower(unit, pt) or 0, max = UnitPowerMax(unit, pt) or 1 }
                     end

@@ -1,11 +1,9 @@
-SETUP_GUIDE_TEXT =
-    "|cFFFFD700Welcome to MidnightQoL!|r\n\n" ..
+SETUP_GUIDE_TEXT = [[
+|cFFFFD700Welcome to MidnightQoL!|r
 
-    "|cFF00CCFFAdding Custom Sounds|r\n" ..
-    "Place .ogg files in: |cFF00FF00Interface/AddOns/MidnightQoL/Sounds/|r\n" ..
-    "Run the code at |cFF00FF00Interface/AddOns/MidnightQoL/code.txt|r in the command prompt from that folder.\n" ..
-    "Check that it updated the text at |cFF00FF00Interface/AddOns/MidnightQoL/SoundsList.lua|r\n\n" ..
+|cFF00CCFFAdding Custom Sounds and Images|r
+Place the folders in the appropriate folder within the |cFF00CCFF...\retail\Interface\Addons\MidnightQoL\|r folder.
 
-    "|cFF00CCFFAdding Custom Images|r\n" ..
-    "Run the labeled code at |cFF00FF00Interface/AddOns/MidnightQoL/code.txt|r in the command prompt from that folder.\n" ..
-    "Check that it updated the text at |cFF00FF00Interface/AddOns/MidnightQoL/ImagesList.lua|r"
+then either update the lists within that same folder by hand or run the code in my github repository to update it.
+Unfortunately Curseforge wont allow the scripts to be inside the folder for security reasons.
+]]

@@ -47,16 +47,6 @@ local function CreateAuraEntry(parentFrame, slotIndex, auraType)
     local soundDropdown = API.CreateSoundSelectorButton(ef,"BuffAlertSoundDropdown"..auraType..slotIndex)
     soundDropdown:SetPoint("TOPLEFT",40,-28); soundDropdown.auraType = auraType
 
-    local stackLabel = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    stackLabel:SetPoint("TOPLEFT",320,-28); stackLabel:SetText("Min Stacks:")
-
-    local stackInput = CreateFrame("EditBox","BuffAlertStackInput"..auraType..slotIndex,ef,"InputBoxTemplate")
-    stackInput:SetSize(35,20); stackInput:SetPoint("TOPLEFT",392,-30)
-    stackInput:SetAutoFocus(false); stackInput:SetMaxLetters(3); stackInput:SetNumeric(true)
-
-    local stackHint = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    stackHint:SetPoint("TOPLEFT",432,-28); stackHint:SetTextColor(0.5,0.5,0.5,1); stackHint:SetText("(0=any)")
-
     local texLabel = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     texLabel:SetPoint("TOPLEFT",0,-54); texLabel:SetText("Alert Img:")
 
@@ -85,16 +75,21 @@ local function CreateAuraEntry(parentFrame, slotIndex, auraType)
     yInput:SetSize(38,18); yInput:SetPoint("TOPLEFT",350,-56); yInput:SetAutoFocus(false); yInput:SetMaxLetters(6)
 
     local szLabel = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    szLabel:SetPoint("TOPLEFT",392,-54); szLabel:SetText("Sz:")
+    szLabel:SetPoint("TOPLEFT",392,-54); szLabel:SetText("H:")
     local szInput = CreateFrame("EditBox","BuffAlertTexSize"..auraType..slotIndex,ef,"InputBoxTemplate")
-    szInput:SetSize(35,18); szInput:SetPoint("TOPLEFT",407,-56); szInput:SetAutoFocus(false); szInput:SetMaxLetters(4)
+    szInput:SetSize(30,18); szInput:SetPoint("TOPLEFT",405,-56); szInput:SetAutoFocus(false); szInput:SetMaxLetters(4)
+
+    local barWLabel = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    barWLabel:SetPoint("TOPLEFT",438,-54); barWLabel:SetText("W:")
+    local barWInput = CreateFrame("EditBox","BuffAlertBarWidth"..auraType..slotIndex,ef,"InputBoxTemplate")
+    barWInput:SetSize(38,18); barWInput:SetPoint("TOPLEFT",450,-56); barWInput:SetAutoFocus(false); barWInput:SetMaxLetters(5)
 
     local durLabel = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    durLabel:SetPoint("TOPLEFT",446,-54); durLabel:SetText("Dur:")
+    durLabel:SetPoint("TOPLEFT",492,-54); durLabel:SetText("Dur:")
     local durInput = CreateFrame("EditBox","BuffAlertTexDur"..auraType..slotIndex,ef,"InputBoxTemplate")
-    durInput:SetSize(35,18); durInput:SetPoint("TOPLEFT",464,-56); durInput:SetAutoFocus(false); durInput:SetMaxLetters(4)
+    durInput:SetSize(35,18); durInput:SetPoint("TOPLEFT",510,-56); durInput:SetAutoFocus(false); durInput:SetMaxLetters(4)
     local durHint = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    durHint:SetPoint("TOPLEFT",503,-54); durHint:SetTextColor(0.5,0.5,0.5,1); durHint:SetText("sec")
+    durHint:SetPoint("TOPLEFT",549,-54); durHint:SetTextColor(0.5,0.5,0.5,1); durHint:SetText("s (0=∞)")
 
     local glowCheck = CreateFrame("CheckButton","BuffAlertGlow"..auraType..slotIndex,ef,"UICheckButtonTemplate")
     glowCheck:SetSize(20,20); glowCheck:SetPoint("TOPLEFT",0,-78)
@@ -105,6 +100,29 @@ local function CreateAuraEntry(parentFrame, slotIndex, auraType)
     hideNativeCheck:SetSize(20,20); hideNativeCheck:SetPoint("TOPLEFT",140,-78)
     local hideNativeLabel = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     hideNativeLabel:SetPoint("TOPLEFT",162,-78); hideNativeLabel:SetText("Hide native icon")
+
+    -- Alert mode: Icon or Bar
+    local modeLabel = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    modeLabel:SetPoint("TOPLEFT",290,-78); modeLabel:SetText("Mode:")
+
+    local iconModeBtn = CreateFrame("CheckButton","BuffAlertModeIcon"..auraType..slotIndex,ef,"UIRadioButtonTemplate")
+    iconModeBtn:SetSize(20,20); iconModeBtn:SetPoint("TOPLEFT",328,-78)
+    local iconModeLbl = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    iconModeLbl:SetPoint("LEFT",iconModeBtn,"RIGHT",2,0); iconModeLbl:SetText("Icon")
+
+    local barModeBtn = CreateFrame("CheckButton","BuffAlertModeBar"..auraType..slotIndex,ef,"UIRadioButtonTemplate")
+    barModeBtn:SetSize(20,20); barModeBtn:SetPoint("TOPLEFT",390,-78)
+    local barModeLbl = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    barModeLbl:SetPoint("LEFT",barModeBtn,"RIGHT",2,0); barModeLbl:SetText("Bar")
+
+    -- Radio toggle logic
+    iconModeBtn:SetScript("OnClick", function()
+        iconModeBtn:SetChecked(true); barModeBtn:SetChecked(false)
+    end)
+    barModeBtn:SetScript("OnClick", function()
+        barModeBtn:SetChecked(true); iconModeBtn:SetChecked(false)
+    end)
+    iconModeBtn:SetChecked(true)  -- default
 
     local tagText = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     tagText:SetPoint("TOPRIGHT",-10,-5)
@@ -128,9 +146,10 @@ local function CreateAuraEntry(parentFrame, slotIndex, auraType)
 
     return {
         frame=ef, enableCheckbox=enableCb, spellDropdown=spellDropdown, idInput=idInput,
-        stackInput=stackInput, soundDropdown=soundDropdown, texInput=texInput, imgBtn=imgBtn,
-        xInput=xInput, yInput=yInput, szInput=szInput, durInput=durInput,
+        soundDropdown=soundDropdown, texInput=texInput, imgBtn=imgBtn,
+        xInput=xInput, yInput=yInput, szInput=szInput, barWInput=barWInput, durInput=durInput,
         tagText=tagText, removeBtn=removeBtn, glowCheck=glowCheck, hideNativeCheck=hideNativeCheck,
+        iconModeBtn=iconModeBtn, barModeBtn=barModeBtn,
     }
 end
 
@@ -142,12 +161,13 @@ end
 
 local function RefreshAuraListUI()
     -- Ensure we always have the latest table references from API
-    trackedBuffs     = API.trackedBuffs
-    trackedDebuffs   = API.trackedDebuffs
-    trackedExternals = API.trackedExternals
+    trackedBuffs     = API.trackedBuffs     or trackedBuffs     or {}
+    trackedDebuffs   = API.trackedDebuffs   or trackedDebuffs   or {}
+    trackedExternals = API.trackedExternals or trackedExternals or {}
 
     local rowCount = 0
     local function DrawSection(list, typeLabel, typeColor)
+        if not list then return end   -- guard: table not ready yet
         local pool = auraEntryPool[typeLabel:lower()]
         for dataIndex, aura in ipairs(list) do
             rowCount = rowCount + 1
@@ -161,15 +181,22 @@ local function RefreshAuraListUI()
             entry.spellDropdown.idInputRef = entry.idInput
             entry.soundDropdown:SetSelectedSound(aura.sound, aura.soundIsID)
             entry.enableCheckbox:SetChecked(aura.enabled ~= false)
-            entry.stackInput:SetText((aura.stackCount and aura.stackCount>0) and tostring(aura.stackCount) or "")
             entry.imgBtn:SetSelectedImage(aura.alertTexture or nil)
             entry.texInput:SetText(aura.alertTexture and tostring(aura.alertTexture) or "")
             entry.xInput:SetText(aura.alertX   and tostring(aura.alertX)   or "")
             entry.yInput:SetText(aura.alertY   and tostring(aura.alertY)   or "")
             entry.szInput:SetText(aura.alertSize     and tostring(aura.alertSize)     or "")
-            entry.durInput:SetText(aura.alertDuration and tostring(aura.alertDuration) or "")
+            local barWIn = _G["BuffAlertBarWidth"..typeLabel:lower()..dataIndex]
+            if barWIn then barWIn:SetText(aura.alertBarWidth and tostring(aura.alertBarWidth) or "") end
+            entry.durInput:SetText(tostring(aura.alertDuration or 0))
             if entry.glowCheck      then entry.glowCheck:SetChecked(aura.glowEnabled    == true) end
             if entry.hideNativeCheck then entry.hideNativeCheck:SetChecked(aura.hideNativeIcon == true) end
+            -- Alert mode radio
+            if entry.iconModeBtn and entry.barModeBtn then
+                local isBar = (aura.alertMode == "bar")
+                entry.iconModeBtn:SetChecked(not isBar)
+                entry.barModeBtn:SetChecked(isBar)
+            end
             local sname = (aura.spellId and aura.spellId>0)
                 and (C_Spell.GetSpellInfo(aura.spellId) and C_Spell.GetSpellInfo(aura.spellId).name)
                 or "Select Spell"
@@ -205,16 +232,21 @@ local function HarvestUIValues()
                 else aura.spellId=tonumber(input:GetText()) or 0 end
             end
             local enableCb=_G["BuffAlertEnableCheckbox"..t..index]; if enableCb then aura.enabled=enableCb:GetChecked() end
-            local stackIn=_G["BuffAlertStackInput"..t..index];       if stackIn  then aura.stackCount=tonumber(stackIn:GetText()) or 0 end
             local imgBtnRef=_G["BuffAlertImgBtn"..t..index]
             local rawImg=imgBtnRef and imgBtnRef.selectedImage
             aura.alertTexture=(rawImg and rawImg~="" and tostring(rawImg)) or nil
             local xIn=_G["BuffAlertTexX"..t..index];    if xIn  then aura.alertX=tonumber(xIn:GetText()) or 0 end
             local yIn=_G["BuffAlertTexY"..t..index];    if yIn  then aura.alertY=tonumber(yIn:GetText()) or 0 end
-            local szIn=_G["BuffAlertTexSize"..t..index]; if szIn then aura.alertSize=tonumber(szIn:GetText()) or 64 end
-            local durIn=_G["BuffAlertTexDur"..t..index]; if durIn then aura.alertDuration=tonumber(durIn:GetText()) or 3 end
+            local szIn=_G["BuffAlertTexSize"..t..index];   if szIn  then aura.alertSize=tonumber(szIn:GetText()) or 64 end
+            local barWIn=_G["BuffAlertBarWidth"..t..index]; if barWIn then aura.alertBarWidth=tonumber(barWIn:GetText()) or 200 end
+            local durIn=_G["BuffAlertTexDur"..t..index]; if durIn then aura.alertDuration=tonumber(durIn:GetText()) or 0 end
             local glowCb=_G["BuffAlertGlow"..t..index];        if glowCb  then aura.glowEnabled=glowCb:GetChecked() end
             local hideCb=_G["BuffAlertHideNative"..t..index];  if hideCb  then aura.hideNativeIcon=hideCb:GetChecked() end
+            -- Alert mode
+            local barModeBtn = _G["BuffAlertModeBar"..t..index]
+            if barModeBtn then
+                aura.alertMode = barModeBtn:GetChecked() and "bar" or "icon"
+            end
             local sd=_G["BuffAlertSoundDropdown"..t..index]
             if sd then
                 aura.sound    =sd.selectedSound or DEFAULT_SOUND_ID
@@ -283,3 +315,5 @@ local function OnAlertsTabDeactivate()
 end
 
 API.RegisterTab("Alerts", contentFrame, OnAlertsTabActivate, 80, OnAlertsTabDeactivate, 2)
+-- Ensure buttons start hidden (RebuildTabBar activates tab 1/General on load)
+OnAlertsTabDeactivate()

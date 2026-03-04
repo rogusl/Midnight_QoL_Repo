@@ -176,6 +176,8 @@ end
 local function CheckPetReminder(reason)
     if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then return end
     if not PET_CLASSES[API.playerClass] then return end
+    -- Don't fire while mounted or flying — pet is dismissed by design
+    if IsMounted() then return end
     ShowPetReminderOverlay(not UnitExists("pet"))
 end
 API.CheckPetReminder = CheckPetReminder
@@ -217,7 +219,8 @@ qolEvents:SetScript("OnEvent", function(self, event, ...)
     elseif event == "UNIT_PET" then
         local unit = ...
         if unit == "player" and PET_CLASSES[API.playerClass] then
-            CheckPetReminder("pet changed")
+            -- Small delay so mount state is settled before we check IsMounted()
+            C_Timer.After(0.5, function() CheckPetReminder("pet changed") end)
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
         local isInitialLogin, isReloadingUi = ...

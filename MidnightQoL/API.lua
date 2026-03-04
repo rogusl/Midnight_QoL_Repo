@@ -49,5 +49,6 @@ MidnightQoLAPI = {
     NormalizeName   = nil,  -- function(name) → lowercase, realm stripped
     NormalizeBNName = nil,  -- function(name) → lowercase, trimmed
     Debug           = nil,  -- function(msg)
-    DEBUG           = true,
+    DEBUG           = false,  -- Set to true via in-game toggle or /mqldebug
 }
+

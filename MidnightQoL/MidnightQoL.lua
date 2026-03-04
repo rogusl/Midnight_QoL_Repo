@@ -502,7 +502,13 @@ local function EnterLayoutMode()
                 if hd.liveFrameRef   then h.liveFrameRef=hd.liveFrameRef   end
                 if hd.resizeCallback then h.resizeCallback=hd.resizeCallback end
                 if hd.previewFunc    then
-                    local ov=hd.previewFunc(); if ov then h.previewOverlay=ov end end
+                    local ov=hd.previewFunc()
+                    if ov then
+                        h.previewOverlay=ov
+                        -- If no live frame was provided, use the preview as the resize target
+                        if not h.liveFrameRef then h.liveFrameRef=ov end
+                    end
+                end
             end
         end
     end
@@ -519,6 +525,7 @@ end
 layoutDoneBtn:SetScript("OnClick",ExitLayoutMode)
 layoutModeBtn:SetScript("OnClick",EnterLayoutMode)
 API.EnterLayoutMode=EnterLayoutMode; API.ExitLayoutMode=ExitLayoutMode
+API.IsLayoutMode=function() return layoutActive end
 
 local function RegisterLayoutHandles(providerFunc)
     table.insert(API._layoutProviders,providerFunc)
@@ -913,6 +920,11 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
 
         LoadSpecProfile()
 
+        -- Restore debug state from saved variable
+        if BuffAlertDB.debugEnabled ~= nil then
+            API.DEBUG = BuffAlertDB.debugEnabled
+        end
+
         -- Register Profiles tab after all sub-addons have loaded
         if API._profilesFrameReady then
             RegisterTab("Profiles", API._profilesFrame, nil, 90, nil, 5)
@@ -932,7 +944,7 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
 end)
 
 -- ── Slash commands ─────────────────────────────────────────────────────────────
-SLASH_CUSTOMSOUNDS1="/customsounds"; SLASH_CUSTOMSOUNDS2="/cs"
+SLASH_CUSTOMSOUNDS1="/qol"; SLASH_CUSTOMSOUNDS2="/midnightqol"
 SlashCmdList["CUSTOMSOUNDS"]=function()
     if mainFrame:IsShown() then mainFrame:Hide()
     else mainFrame:Show(); if tabButtons[1] then ActivateTabByIndex(1) end end
@@ -946,3 +958,83 @@ end
 
 SLASH_CUSTOMSOUNDTEST1="/soundtest"
 SlashCmdList["CUSTOMSOUNDTEST"]=function() PlayCustomSound(12743,true) end
+
+SLASH_MQLDEBUG1="/mqldebug"
+SlashCmdList["MQLDEBUG"]=function()
+    API.DEBUG = not API.DEBUG
+    if BuffAlertDB then BuffAlertDB.debugEnabled = API.DEBUG end
+    print("|cFF00FF00[MidnightQoL]|r Debug mode " .. (API.DEBUG and "|cFFFFFF00ENABLED|r" or "|cFFAAAAAAdisabled|r"))
+    -- Sync UI checkbox if open
+    if _G["CSGenDebugCheck"] then _G["CSGenDebugCheck"]:SetChecked(API.DEBUG) end
+end
+
+-- /mqlimps — diagnose Wild Imp detection
+SLASH_MQLIMPS1="/mqlimps"
+SlashCmdList["MQLIMPS"]=function()
+    local IMPLOSION_SPELL_ID = 196277
+    print("|cFF00CCFF[MidnightQoL Imps Debug]|r ----------")
+
+    local page = GetActionBarPage and GetActionBarPage() or 1
+    print("Current action bar page: " .. tostring(page))
+
+    -- Print raw return values from GetActionInfo for slots 1-12
+    print("Raw GetActionInfo for slots 1-12:")
+    for slot = 1, 12 do
+        local atype, aid, spellID = GetActionInfo(slot)
+        if atype then
+            print("  slot " .. slot .. ": type=" .. tostring(atype) ..
+                " aid=" .. tostring(aid) ..
+                " spellID=" .. tostring(spellID) ..
+                (spellID == IMPLOSION_SPELL_ID and " |cFF00FF00<< MATCH|r" or ""))
+        end
+    end
+
+    -- Also check ActionButton9.action directly with raw GetActionInfo
+    local btn9 = _G["ActionButton9"]
+    if btn9 then
+        local atype, aid, spellID = GetActionInfo(btn9.action)
+        print("ActionButton9.action=" .. tostring(btn9.action) ..
+            " -> type=" .. tostring(atype) ..
+            " spellID=" .. tostring(spellID))
+    end
+
+    -- Direct FontString read
+    local fs = _G["ActionButton9"] and (_G["ActionButton9"].Count or _G["ActionButton9Count"])
+    print("ActionButton9Count:GetText() = |cFFFFFF00" .. tostring(fs and fs:GetText() or "nil") .. "|r")
+    print("GetWildImpCount() = |cFFFFFF00" .. tostring(MidnightQoLAPI and MidnightQoLAPI.GetWildImpCount and MidnightQoLAPI.GetWildImpCount() or "?") .. "|r")
+    print("|cFF00CCFF[MidnightQoL Imps Debug]|r ----------")
+end
+
+-- /mqlauras — dump all current player auras with spell IDs
+-- Use immediately after casting a suspect spell to identify what it puts on you
+SLASH_MQLAURAS1="/mqlauras"
+SlashCmdList["MQLAURAS"]=function()
+    print("|cFF00CCFF[MidnightQoL Aura Dump]|r ----------")
+    local i = 1
+    while true do
+        local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
+        if not ok or not aura then break end
+        local name = aura.name or "?"
+        local sid  = aura.spellId or 0
+        print(string.format("  [%d] %s  sid=%d  stacks=%s  dur=%.1f",
+            i, name, sid,
+            tostring(aura.applications or 0),
+            aura.duration or 0))
+        i = i + 1
+    end
+    -- Also check tracked buff IDs specifically
+    print("  -- Tracked buff IDs currently active: --")
+    local API = MidnightQoLAPI
+    if API and API.trackedBuffs then
+        for _, buff in ipairs(API.trackedBuffs) do
+            if buff.enabled ~= false and buff.spellId then
+                local ok2, aura2 = pcall(C_UnitAuras.GetPlayerAuraBySpellID, buff.spellId)
+                local active = ok2 and aura2 and "ACTIVE" or "absent"
+                local ok3, info = pcall(C_Spell.GetSpellInfo, buff.spellId)
+                local sname = ok3 and info and info.name or "?"
+                print(string.format("  sid=%d (%s): %s", buff.spellId, sname, active))
+            end
+        end
+    end
+    print("|cFF00CCFF[MidnightQoL Aura Dump]|r ----------")
+end
