@@ -4,6 +4,8 @@
 ## Author: Rogus
 ## Version: 2.1
 ## SavedVariables: BuffAlertDB
+## X-Curse-Project-ID:1472751
+
 
 API.lua
 Widgets.lua
