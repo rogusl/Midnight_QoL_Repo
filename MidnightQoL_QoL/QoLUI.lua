@@ -77,9 +77,37 @@ resBarsCheck:SetScript("OnClick", function(self)
     end
 end)
 
+-- Rogue Poison Alert toggle
+local poisonCheck = CreateFrame("CheckButton","CSGenPoisonCheck",generalFrame,"UICheckButtonTemplate")
+poisonCheck:SetSize(24,24); poisonCheck:SetPoint("TOPLEFT", resBarsCheck, "BOTTOMLEFT", 0, -4)
+local poisonLbl = _G["CSGenPoisonCheckText"]
+if poisonLbl then poisonLbl:SetText("Rogue Missing Poison Alert") end
+poisonCheck:SetScript("OnClick", function(self)
+    if BuffAlertDB then BuffAlertDB.poisonAlertEnabled = self:GetChecked() end
+end)
+
+-- Raid Buff Checker toggle
+local raidbuffCheck = CreateFrame("CheckButton","CSGenRaidbuffCheck",generalFrame,"UICheckButtonTemplate")
+raidbuffCheck:SetSize(24,24); raidbuffCheck:SetPoint("TOPLEFT", poisonCheck, "BOTTOMLEFT", 0, -4)
+local raidbuffLbl = _G["CSGenRaidbuffCheckText"]
+if raidbuffLbl then raidbuffLbl:SetText("Raid Buff Checker (on Ready Check)") end
+raidbuffCheck:SetScript("OnClick", function(self)
+    if BuffAlertDB then BuffAlertDB.raidbuffCheckEnabled = self:GetChecked() end
+end)
+
+-- Battle Rez Tracker toggle
+local brezCheck = CreateFrame("CheckButton","CSGenBrezCheck",generalFrame,"UICheckButtonTemplate")
+brezCheck:SetSize(24,24); brezCheck:SetPoint("TOPLEFT", raidbuffCheck, "BOTTOMLEFT", 0, -4)
+local brezLbl = _G["CSGenBrezCheckText"]
+if brezLbl then brezLbl:SetText("Battle Rez Tracker") end
+brezCheck:SetScript("OnClick", function(self)
+    if BuffAlertDB then BuffAlertDB.battlerezEnabled = self:GetChecked() end
+    if API.UpdateBrezFrame then API.UpdateBrezFrame() end
+end)
+
 -- Debug Mode toggle
 local debugCheck = CreateFrame("CheckButton","CSGenDebugCheck",generalFrame,"UICheckButtonTemplate")
-debugCheck:SetSize(24,24); debugCheck:SetPoint("TOPLEFT", resBarsCheck, "BOTTOMLEFT", 0, -4)
+debugCheck:SetSize(24,24); debugCheck:SetPoint("TOPLEFT", brezCheck, "BOTTOMLEFT", 0, -4)
 local debugLbl = _G["CSGenDebugCheckText"]
 if debugLbl then debugLbl:SetText("Debug Mode  |cFFAAAAAA(/mqldebug)|r") end
 debugCheck:SetScript("OnClick", function(self)
@@ -88,9 +116,184 @@ debugCheck:SetScript("OnClick", function(self)
     print("|cFF00FF00[MidnightQoL]|r Debug mode " .. (API.DEBUG and "|cFFFFFF00ENABLED|r" or "|cFFAAAAAAdisabled|r"))
 end)
 
+-- Bag Upgrade Indicator toggle
+local bagUpgradeCheck = CreateFrame("CheckButton","CSGenBagUpgradeCheck",generalFrame,"UICheckButtonTemplate")
+bagUpgradeCheck:SetSize(24,24); bagUpgradeCheck:SetPoint("TOPLEFT", debugCheck, "BOTTOMLEFT", 0, -4)
+local bagUpgradeLbl = _G["CSGenBagUpgradeCheckText"]
+if bagUpgradeLbl then bagUpgradeLbl:SetText("Bag Upgrade Indicator  |cFFAAAAAA(green badge on ilvl upgrades)|r") end
+bagUpgradeCheck:SetScript("OnClick", function(self)
+    if BuffAlertDB then BuffAlertDB.bagUpgradeEnabled = self:GetChecked() end
+    if API.BagUpgradeScan then API.BagUpgradeScan() end
+end)
+
+-- Sell Confirm toggle
+local sellConfirmCheck = CreateFrame("CheckButton","CSGenSellConfirmCheck",generalFrame,"UICheckButtonTemplate")
+sellConfirmCheck:SetSize(24,24); sellConfirmCheck:SetPoint("TOPLEFT", bagUpgradeCheck, "BOTTOMLEFT", 0, -4)
+local sellConfirmLbl = _G["CSGenSellConfirmCheckText"]
+if sellConfirmLbl then sellConfirmLbl:SetText("Sell Confirm for Set Items  |cFFAAAAAA(prompts buyback if you sell a tier/armor set piece)|r") end
+sellConfirmCheck:SetScript("OnClick", function(self)
+    if BuffAlertDB then BuffAlertDB.sellConfirmEnabled = self:GetChecked() end
+end)
+
+-- ── Section: Modules ──────────────────────────────────────────────────────────
+-- One checkbox per non-General tab. Hiding a tab removes its button from the bar.
+-- ── UI Fading ─────────────────────────────────────────────────────────────────
+local fadeHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+fadeHeader:SetPoint("TOPLEFT", sellConfirmCheck, "BOTTOMLEFT", 0, -24)
+fadeHeader:SetText("|cFFFFD700UI Fading|r")
+
+local fadeDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+fadeDesc:SetPoint("TOPLEFT", fadeHeader, "BOTTOMLEFT", 0, -4)
+fadeDesc:SetText("Set opacity for UI elements. 100% = fully visible.")
+fadeDesc:SetTextColor(0.6,0.6,0.6,1)
+
+-- Helper: create a labelled alpha slider (0–100% in 5% steps)
+local FADE_SLIDER_W = 200
+local function MakeAlphaSlider(anchorFrame, labelText, dbKey, applyFn)
+    local lbl = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    lbl:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -14)
+    lbl:SetText(labelText)
+    lbl:SetTextColor(1,1,1,1)
+
+    local slider = CreateFrame("Slider", nil, generalFrame, "UISliderTemplate")
+    slider:SetSize(FADE_SLIDER_W, 16)
+    slider:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -10)
+    slider:SetMinMaxValues(0, 100)
+    slider:SetValueStep(5)
+    slider:SetObeyStepOnDrag(true)
+
+    -- Value label to the right
+    local valLbl = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    valLbl:SetPoint("LEFT", slider, "RIGHT", 8, 0)
+
+    local function OnValueChanged(self, val)
+        val = math.floor(val / 5 + 0.5) * 5  -- snap to 5%
+        valLbl:SetText(val .. "%")
+        if BuffAlertDB then BuffAlertDB[dbKey] = val end
+        if applyFn then applyFn(val / 100) end
+    end
+    slider:SetScript("OnValueChanged", OnValueChanged)
+
+    -- Sync from DB
+    slider.Sync = function()
+        local saved = BuffAlertDB and BuffAlertDB[dbKey]
+        local v = (saved ~= nil) and saved or 100
+        slider:SetValue(v)
+        valLbl:SetText(v .. "%")
+    end
+
+    return slider  -- bottom anchor for next widget
+end
+
+-- Apply functions
+local function ApplyMinimapAlpha(a)
+    if Minimap then Minimap:SetAlpha(a) end
+    if MinimapCluster then MinimapCluster:SetAlpha(a) end
+end
+
+local UNIT_FRAMES = {
+    "PlayerFrame","TargetFrame","FocusFrame",
+    "PartyMemberFrame1","PartyMemberFrame2","PartyMemberFrame3","PartyMemberFrame4",
+}
+local function ApplyUnitFrameAlpha(a)
+    for _, name in ipairs(UNIT_FRAMES) do
+        local f = _G[name]
+        if f and f.SetAlpha then f:SetAlpha(a) end
+    end
+    if BuffAlertDB then BuffAlertDB.uiFadeUnitFrames = math.floor(a * 100 + 0.5) end
+end
+
+-- NOTE: Nameplate alpha CVars (nameplateMaxAlpha etc.) are "secure CVars" in WoW.
+-- Blizzard blocks addons from calling SetCVar on secure CVars entirely — no timer
+-- or deferral trick works around this. Nameplate opacity must be set manually via
+-- Game Menu > Options > Accessibility > Nameplates, or with /console nameplateMaxAlpha.
+local npNote = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+npNote:SetPoint("TOPLEFT", fadeDesc, "BOTTOMLEFT", 0, -14)
+npNote:SetText("|cFFFFAAAANameplates:|r Blizzard blocks addons from changing nameplate opacity.\nUse |cFFFFD700Game Menu > Options > Accessibility > Nameplates|r instead.")
+npNote:SetTextColor(0.8, 0.8, 0.8, 1)
+npNote:SetJustifyH("LEFT")
+npNote:SetWidth(420)
+
+local ACTION_BAR_FRAMES = {
+    "MainMenuBar",
+    "MultiBarBottomLeft", "MultiBarBottomRight",
+    "MultiBarLeft", "MultiBarRight",
+    "MultiBar5", "MultiBar6", "MultiBar7",
+    "StanceBar", "PetActionBar", "PossessActionBar",
+    "OverrideActionBar",
+}
+local function ApplyActionBarAlpha(a)
+    for _, name in ipairs(ACTION_BAR_FRAMES) do
+        local f = _G[name]
+        if f and f.SetAlpha then f:SetAlpha(a) end
+    end
+    if BuffAlertDB then BuffAlertDB.uiFadeActionBars = math.floor(a * 100 + 0.5) end
+end
+
+local mmSlider  = MakeAlphaSlider(npNote,   "Minimap",                                "uiFadeMinimap",    ApplyMinimapAlpha)
+local ufSlider  = MakeAlphaSlider(mmSlider, "Unit Frames (player/target/focus/party)", "uiFadeUnitFrames", ApplyUnitFrameAlpha)
+local abSlider  = MakeAlphaSlider(ufSlider, "Action Bars",                             "uiFadeActionBars", ApplyActionBarAlpha)
+
+-- Expose sync so SyncGeneralUI can call it
+local function SyncFadeSliders()
+    mmSlider.Sync(); ufSlider.Sync(); abSlider.Sync()
+end
+API.SyncFadeSliders = SyncFadeSliders
+
+-- Apply saved values on login/zone
+local fadeApplyEvents = CreateFrame("Frame")
+fadeApplyEvents:RegisterEvent("PLAYER_LOGIN")
+fadeApplyEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+fadeApplyEvents:SetScript("OnEvent", function()
+    local db = BuffAlertDB
+    if not db then return end
+    local mmA = ((db.uiFadeMinimap    ~= nil) and db.uiFadeMinimap    or 100) / 100
+    local ufA = ((db.uiFadeUnitFrames ~= nil) and db.uiFadeUnitFrames or 100) / 100
+    local abA = ((db.uiFadeActionBars ~= nil) and db.uiFadeActionBars or 100) / 100
+    C_Timer.After(0.5, function()
+        ApplyMinimapAlpha(mmA)
+        ApplyUnitFrameAlpha(ufA)
+        ApplyActionBarAlpha(abA)
+    end)
+end)
+
+local modulesHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+modulesHeader:SetPoint("TOPLEFT", abSlider, "BOTTOMLEFT", 0, -30)
+modulesHeader:SetText("|cFFFFD700Modules|r")
+
+local modulesDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+modulesDesc:SetPoint("TOPLEFT", modulesHeader, "BOTTOMLEFT", 0, -4)
+modulesDesc:SetText("Show or hide tabs in the configuration window.")
+modulesDesc:SetTextColor(0.6,0.6,0.6)
+
+-- Each entry: { tab label, DB-friendly key, display label }
+local MODULE_TABS = {
+    { label="Layouts",   key="Layouts",   display="Layouts"   },
+    { label="Alerts",    key="Alerts",    display="Alerts"    },
+    { label="Resources", key="Resources", display="Resources" },
+    { label="Castbar",   key="Castbar",   display="Castbar"   },
+    { label="Profiles",  key="Profiles",  display="Profiles"  },
+}
+
+local moduleChecks = {}
+local prevAnchor = modulesDesc
+for idx, mod in ipairs(MODULE_TABS) do
+    local cb = CreateFrame("CheckButton","CSGenModuleCheck"..mod.key,generalFrame,"UICheckButtonTemplate")
+    cb:SetSize(24,24)
+    cb:SetPoint("TOPLEFT", prevAnchor, "BOTTOMLEFT", 0, idx == 1 and -8 or -4)
+    local lbl = _G["CSGenModuleCheck"..mod.key.."Text"]
+    if lbl then lbl:SetText(mod.display) end
+    local tabLabel = mod.label
+    cb:SetScript("OnClick", function(self)
+        if API.SetTabEnabled then API.SetTabEnabled(tabLabel, self:GetChecked()) end
+    end)
+    moduleChecks[mod.key] = cb
+    prevAnchor = cb
+end
+
 -- ── Section: Quest Automation ─────────────────────────────────────────────────
 local questHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
-questHeader:SetPoint("TOPLEFT", debugCheck, "BOTTOMLEFT", 0, -20)
+questHeader:SetPoint("TOPLEFT", prevAnchor, "BOTTOMLEFT", 0, -20)
 questHeader:SetText("|cFFFFD700Quest Automation|r")
 
 local questDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
@@ -168,7 +371,7 @@ end)
 local expRepCheck = CreateFrame("CheckButton","CSExpBarRepCheck",generalFrame,"UICheckButtonTemplate")
 expRepCheck:SetSize(24,24); expRepCheck:SetPoint("TOPLEFT", expRestedCheck, "BOTTOMLEFT", 0, -4)
 local expRepLbl = _G["CSExpBarRepCheckText"]
-if expRepLbl then expRepLbl:SetText("Show Reputation Bar at Max Level") end
+if expRepLbl then expRepLbl:SetText("Show Reputation Bar at Max Level  |cFFAAAAAA(only if Hide at Max is off)|r") end
 expRepCheck:SetScript("OnClick", function(self)
     if BuffAlertDB then BuffAlertDB.expBarShowRep = self:GetChecked() end
     if API.UpdateExpBar then API.UpdateExpBar() end
@@ -177,7 +380,7 @@ end)
 local expHideMaxCheck = CreateFrame("CheckButton","CSExpBarHideMaxCheck",generalFrame,"UICheckButtonTemplate")
 expHideMaxCheck:SetSize(24,24); expHideMaxCheck:SetPoint("TOPLEFT", expRepCheck, "BOTTOMLEFT", 0, -4)
 local expHideMaxLbl = _G["CSExpBarHideMaxCheckText"]
-if expHideMaxLbl then expHideMaxLbl:SetText("Hide at Max Level (when no rep tracked)") end
+if expHideMaxLbl then expHideMaxLbl:SetText("Hide at Max Level") end
 expHideMaxCheck:SetScript("OnClick", function(self)
     if BuffAlertDB then BuffAlertDB.expBarHideAtMax = self:GetChecked() end
     if API.UpdateExpBar then API.UpdateExpBar() end
@@ -478,11 +681,16 @@ end)
 -- ── Sync function (called when General tab is opened) ─────────────────────────
 local function SyncGeneralUI()
     if not BuffAlertDB then return end
-    alertsCheck:SetChecked(BuffAlertDB.buffDebuffAlertsEnabled ~= false)
-    whisperCheck:SetChecked(BuffAlertDB.whisperIndicatorEnabled ~= false)
+    alertsCheck:SetChecked(BuffAlertDB.buffDebuffAlertsEnabled == true)
+    whisperCheck:SetChecked(BuffAlertDB.whisperIndicatorEnabled == true)
     mmCheck:SetChecked(BuffAlertDB.minimapBtnShown ~= false)
-    resBarsCheck:SetChecked(BuffAlertDB.resourceBarsEnabled ~= false)
+    resBarsCheck:SetChecked(BuffAlertDB.resourceBarsEnabled == true)
+    poisonCheck:SetChecked(BuffAlertDB.poisonAlertEnabled == true)
+    raidbuffCheck:SetChecked(BuffAlertDB.raidbuffCheckEnabled == true)
+    brezCheck:SetChecked(BuffAlertDB.battlerezEnabled == true)
     debugCheck:SetChecked(API.DEBUG or false)
+    bagUpgradeCheck:SetChecked(BuffAlertDB.bagUpgradeEnabled == true)
+    sellConfirmCheck:SetChecked(BuffAlertDB.sellConfirmEnabled == true)
     autoAcceptCheck:SetChecked(BuffAlertDB.autoQuestAccept or false)
     autoTurnInCheck:SetChecked(BuffAlertDB.autoQuestTurnIn or false)
     -- Experience bar
@@ -517,6 +725,8 @@ local function SyncGeneralUI()
     if BuffAlertDB.petReminderSound then
         petSoundDropdown:SetSelectedSound(BuffAlertDB.petReminderSound, BuffAlertDB.petReminderSoundIsID)
     end
+    -- Fade sliders
+    if API.SyncFadeSliders then API.SyncFadeSliders() end
     -- Let BarsUI sync its controls too
     if API._barsGeneralSync then API._barsGeneralSync() end
     -- Update spec label
@@ -524,6 +734,13 @@ local function SyncGeneralUI()
         local specIndex = GetSpecialization and GetSpecialization()
         local specName  = specIndex and select(2, GetSpecializationInfo(specIndex)) or "Unknown"
         API.specInfoLabel:SetText("Active Spec: |cFFFFD700"..(API.playerClass or "?").." - "..tostring(specName).."|r")
+    end
+    -- Sync module tab checkboxes
+    if moduleChecks and API.IsTabEnabled then
+        for _, mod in ipairs(MODULE_TABS) do
+            local cb = moduleChecks[mod.key]
+            if cb then cb:SetChecked(API.IsTabEnabled(mod.label)) end
+        end
     end
 end
 

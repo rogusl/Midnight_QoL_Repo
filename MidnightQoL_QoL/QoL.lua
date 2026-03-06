@@ -7,59 +7,67 @@ local API = MidnightQoLAPI
 
 local PET_CLASSES = { HUNTER = true, WARLOCK = true }
 
+-- Abilities are based on the pet's family/spec role.
+-- Warlock: Command Demon ability (what the player presses) + passive utility.
+-- Hunter:  what the pet's family brings to the group.
 local PET_ABILITIES = {
-    -- Hunter pets
-    ["Cat"]           = { interrupt="Rake (silence)",           cc="Prowl" },
-    ["Lynx"]          = { interrupt="Rake (silence)" },
-    ["Cheetah"]       = { interrupt="Rake (silence)" },
-    ["Crab"]          = { defensive="Shell Shield",             cc="Pin" },
-    ["Carrion Bird"]  = { interrupt="Demoralizing Screech",     cc="Demoralizing Screech" },
-    ["Bat"]           = { interrupt="Sonic Blast (silence)",    cc="Sonic Blast" },
-    ["Ravager"]       = { cc="Ravage" },
-    ["Raptor"]        = { interrupt="Tear Armor" },
-    ["Wind Serpent"]  = { interrupt="Lightning Breath" },
-    ["Core Hound"]    = { cc="Lava Breath (slow)",              defensive="Ancient Hysteria (Heroism)" },
-    ["Silithid"]      = { cc="Venom Web Spray (root)" },
-    ["Hyena"]         = { cc="Cackling Howl (speed reduce)" },
-    ["Bear"]          = { defensive="Thick Hide, Last Stand" },
-    ["Boar"]          = { defensive="Charge, Gore" },
-    ["Gorilla"]       = { interrupt="Pummel",                   defensive="Thunderstomp (AoE)" },
-    ["Turtle"]        = { defensive="Shell Shield" },
-    ["Warp Stalker"]  = { defensive="Warp (phase shift)" },
-    ["Tallstrider"]   = { defensive="Dust Cloud (miss chance)" },
-    ["Rhino"]         = { cc="Stampede (knockback)" },
-    ["Mammoth"]       = { cc="Trample (knockback)" },
-    ["Owl"]           = { interrupt="Screech (silence)",        cc="Screech" },
-    ["Dragonhawk"]    = { interrupt="Fire Breath" },
-    ["Nether Ray"]    = { interrupt="Nether Shock (silence)",   cc="Nether Shock" },
-    ["Sporebat"]      = { cc="Spore Cloud (slow)" },
-    ["Wasp"]          = { cc="Sting (slow)" },
-    ["Scorpid"]       = { cc="Scorpid Poison (slow)" },
-    ["Spider"]        = { cc="Web (root)" },
-    ["Serpent"]       = { cleanse="Viper Sting (mana drain)" },
-    ["Devilsaur"]     = { interrupt="Monstrous Bite",           cc="Fearsome Roar (fear)" },
-    ["Worm"]          = { defensive="Burrow Attack" },
-    ["Spirit Beast"]  = { cleanse="Spirit Mend (heal)",         defensive="Spirit Walk (stealth)" },
-    ["Quilen"]        = { defensive="Eternal Guardian (battle rez)", cleanse="Quilen Wail (AoE)" },
-    ["Clefthoof"]     = { defensive="Thick Hide" },
-    ["Chimaera"]      = { cleanse="Froststorm Breath (slow)" },
-    ["Water Strider"] = { defensive="Surface Trot (water walking)" },
-    -- Warlock demons
-    ["Imp"]           = { defensive="Singe Magic (magic dispel)", cleanse="Singe Magic" },
-    ["Voidwalker"]    = { defensive="Suffering (taunt), Consume Shadows (self-heal)" },
-    ["Felhunter"]     = { interrupt="Spell Lock (silence/interrupt)", cleanse="Devour Magic (dispel)" },
-    ["Succubus"]      = { cc="Seduction (charm, humanoids)" },
-    ["Felguard"]      = { interrupt="Axe Toss (stun)",          cc="Pursuit, Demonic Frenzy" },
-    ["Infernal"]      = { cc="Meteor Strike (stun), Immolation (AoE)" },
-    ["Doomguard"]     = { interrupt="Doom Bolt",                defensive="Demonic Fortitude" },
-    ["Observer"]      = { interrupt="Optical Blast (silence)",  cleanse="Fel Absorption" },
-    ["Wrathguard"]    = { interrupt="Mortal Cleave",            cc="Threatening Presence" },
-    ["Darkglare"]     = { cc="Eye Sore (damage + DoT)" },
+    -- ── Warlock demons ────────────────────────────────────────────────────
+    ["Imp"]        = { interrupt="Cauterize Master — Command Demon",              defensive="Singe Magic — dispel magic debuff from ally" },
+    ["Voidwalker"] = { defensive="Shadow Bulwark — Command Demon absorb shield" },
+    ["Felhunter"]  = { interrupt="Spell Lock — Command Demon silence/interrupt",  cleanse="Devour Magic — dispel magic" },
+    ["Succubus"]   = { cc="Seduction — Command Demon charm (humanoids)" },
+    ["Felguard"]   = { interrupt="Axe Toss — Command Demon stun",                cc="Pursuit — root" },
+    ["Wrathguard"] = { interrupt="Mortal Cleave — Command Demon",                 cc="Threatening Presence — taunt" },
+    ["Observer"]   = { interrupt="Optical Blast — Command Demon silence",         cleanse="Fel Absorption — absorb" },
+    ["Infernal"]   = { cc="Meteor Strike — stun,  Immolation — AoE" },
+    ["Doomguard"]  = { interrupt="Doom Bolt — Command Demon",                     defensive="Demonic Fortitude — stamina buff" },
+    ["Darkglare"]  = { cc="Eye Sore — damage + DoT" },
+    -- ── Hunter pets — by pet family role ─────────────────────────────────
+    -- Ferocity (DPS / Heroism)
+    ["Cat"]          = { interrupt="Rake — silence" },
+    ["Lynx"]         = { interrupt="Rake — silence" },
+    ["Cheetah"]      = { interrupt="Rake — silence" },
+    ["Owl"]          = { interrupt="Screech — silence" },
+    ["Bat"]          = { interrupt="Sonic Blast — silence" },
+    ["Dragonhawk"]   = { interrupt="Fire Breath" },
+    ["Nether Ray"]   = { interrupt="Nether Shock — silence" },
+    ["Wind Serpent"] = { interrupt="Lightning Breath" },
+    ["Carrion Bird"] = { interrupt="Demoralizing Screech" },
+    ["Raptor"]       = { interrupt="Tear Armor" },
+    ["Devilsaur"]    = { interrupt="Monstrous Bite",      cc="Fearsome Roar — fear" },
+    ["Wolf"]         = { defensive="Furious Howl — attack power buff" },
+    ["Core Hound"]   = { defensive="Ancient Hysteria — Heroism/Lust" },
+    ["Hyena"]        = { cc="Cackling Howl — speed reduce" },
+    ["Wasp"]         = { cc="Sting — slow" },
+    ["Scorpid"]      = { cc="Scorpid Poison — slow" },
+    ["Serpent"]      = { cleanse="Viper Sting — mana drain" },
+    -- Tenacity (tank / defensive)
+    ["Bear"]         = { defensive="Thick Hide, Last Stand — damage reduction" },
+    ["Turtle"]       = { defensive="Shell Shield — extreme damage reduction" },
+    ["Boar"]         = { defensive="Charge, Gore — threat" },
+    ["Gorilla"]      = { interrupt="Pummel",              defensive="Thunderstomp — AoE threat" },
+    ["Warp Stalker"] = { defensive="Warp — phase shift" },
+    ["Crab"]         = { defensive="Shell Shield",        cc="Pin — root" },
+    ["Clefthoof"]    = { defensive="Thick Hide" },
+    ["Worm"]         = { defensive="Burrow Attack" },
+    ["Tallstrider"]  = { defensive="Dust Cloud — miss chance" },
+    -- Cunning (PvP / utility)
+    ["Spider"]       = { cc="Web — root" },
+    ["Silithid"]     = { cc="Venom Web Spray — root" },
+    ["Rhino"]        = { cc="Stampede — knockback" },
+    ["Mammoth"]      = { cc="Trample — knockback" },
+    ["Ravager"]      = { cc="Ravage" },
+    ["Sporebat"]     = { cc="Spore Cloud — slow" },
+    ["Chimaera"]     = { cleanse="Froststorm Breath — slow" },
+    -- Special utility
+    ["Quilen"]       = { defensive="Eternal Guardian — battle rez", cleanse="Quilen Wail — AoE dispel" },
+    ["Spirit Beast"] = { cleanse="Spirit Mend — heal",    defensive="Spirit Walk — stealth" },
+    ["Water Strider"]= { defensive="Surface Trot — water walking" },
 }
 
 local PET_ROLE_FALLBACK = {
-    HUNTER  = { interrupt="Check pet family for interrupt", defensive="Thick Hide (passive)" },
-    WARLOCK = { interrupt="Spell Lock (Felhunter)",         defensive="Voidwalker recommended for solo" },
+    HUNTER  = { defensive="Unknown family — check Petopia for role" },
+    WARLOCK = { interrupt="Command Demon varies by active pet" },
 }
 
 local function GetPetAbilitySummary()
@@ -67,11 +75,11 @@ local function GetPetAbilitySummary()
     local data   = family and PET_ABILITIES[family] or PET_ROLE_FALLBACK[API.playerClass]
     if not data then return nil end
     local parts = {}
-    if data.interrupt then table.insert(parts, "|cFFFF6060⚡ "..data.interrupt.."|r") end
-    if data.cleanse   then table.insert(parts, "|cFF60FF60✦ "..data.cleanse  .."|r") end
-    if data.defensive then table.insert(parts, "|cFF6060FF🛡 "..data.defensive.."|r") end
-    if data.cc        then table.insert(parts, "|cFFFFFF60◎ "..data.cc       .."|r") end
-    return #parts > 0 and table.concat(parts,"  ") or nil
+    if data.interrupt then table.insert(parts, "|cFFFF6060[INTERRUPT]|r "..data.interrupt) end
+    if data.cleanse   then table.insert(parts, "|cFF60FF60[DISPEL]|r "   ..data.cleanse)   end
+    if data.defensive then table.insert(parts, "|cFF6699FF[UTILITY]|r "  ..data.defensive) end
+    if data.cc        then table.insert(parts, "|cFFFFFF60[CC]|r "        ..data.cc)        end
+    return #parts > 0 and table.concat(parts,"\n") or nil
 end
 
 -- ── Pet reminder frame ─────────────────────────────────────────────────────────
@@ -112,14 +120,56 @@ petReminderSub:SetPoint("TOPLEFT",petReminderText,"BOTTOMLEFT",0,-4)
 petReminderSub:SetPoint("RIGHT",petReminderFrame,"RIGHT",-10,0)
 petReminderSub:SetJustifyH("LEFT"); petReminderSub:SetTextColor(0.85,0.85,0.85,1); petReminderSub:SetText("")
 
--- Icon lookup table
+-- Icon paths — using named Interface/Icons paths avoids numeric ID collisions
 local FAMILY_ICONS = {
-    Imp=136218, Voidwalker=136221, Felhunter=136217, Succubus=136220,
-    Felguard=136220, Infernal=136219, Doomguard=136219, Observer=136217, Wrathguard=136220,
-    Cat=132176, Bear=132172, Gorilla=132180, Turtle=132183, Bat=132171,
-    Owl=132182, Wolf=132184, Boar=132173, Crab=132175, Ravager=132181,
-    Raptor=132181, Scorpid=136218, Spider=136218, ["Wind Serpent"]=136218,
-    ["Spirit Beast"]=136218, Devilsaur=132180,
+    -- Warlock demons (each has its own summon spell icon)
+    ["Imp"]          = "Interface\\Icons\\Spell_Shadow_SummonImp",
+    ["Voidwalker"]   = "Interface\\Icons\\Spell_Shadow_SummonVoidWalker",
+    ["Felhunter"]    = "Interface\\Icons\\Spell_Shadow_SummonFelHunter",
+    ["Succubus"]     = "Interface\\Icons\\Spell_Shadow_SummonSuccubus",
+    ["Felguard"]     = "Interface\\Icons\\Ability_Warlock_SummonFelguard",
+    ["Wrathguard"]   = "Interface\\Icons\\Ability_Warlock_SummonFelguard",
+    ["Observer"]     = "Interface\\Icons\\Ability_Warlock_SummonObserver",
+    ["Infernal"]     = "Interface\\Icons\\Spell_Shadow_SummonInfernal",
+    ["Doomguard"]    = "Interface\\Icons\\Spell_Shadow_SummonDoomguard",
+    ["Darkglare"]    = "Interface\\Icons\\Ability_Warlock_SummonDarkglare",
+    -- Hunter pets
+    ["Cat"]          = "Interface\\Icons\\Ability_Hunter_Pet_Cat",
+    ["Lynx"]         = "Interface\\Icons\\Ability_Hunter_Pet_Cat",
+    ["Cheetah"]      = "Interface\\Icons\\Ability_Hunter_Pet_Cat",
+    ["Bear"]         = "Interface\\Icons\\Ability_Hunter_Pet_Bear",
+    ["Boar"]         = "Interface\\Icons\\Ability_Hunter_Pet_Boar",
+    ["Gorilla"]      = "Interface\\Icons\\Ability_Hunter_Pet_Gorilla",
+    ["Turtle"]       = "Interface\\Icons\\Ability_Hunter_Pet_Turtle",
+    ["Bat"]          = "Interface\\Icons\\Ability_Hunter_Pet_Bat",
+    ["Owl"]          = "Interface\\Icons\\Ability_Hunter_Pet_Owl",
+    ["Crab"]         = "Interface\\Icons\\Ability_Hunter_Pet_Crab",
+    ["Ravager"]      = "Interface\\Icons\\Ability_Hunter_Pet_Ravager",
+    ["Raptor"]       = "Interface\\Icons\\Ability_Hunter_Pet_Raptor",
+    ["Scorpid"]      = "Interface\\Icons\\Ability_Hunter_Pet_Scorpid",
+    ["Spider"]       = "Interface\\Icons\\Ability_Hunter_Pet_Spider",
+    ["Wind Serpent"] = "Interface\\Icons\\Ability_Hunter_Pet_WindSerpent",
+    ["Spirit Beast"] = "Interface\\Icons\\Ability_Hunter_Pet_SpiritBeast",
+    ["Devilsaur"]    = "Interface\\Icons\\Ability_Hunter_Pet_Devilsaur",
+    ["Core Hound"]   = "Interface\\Icons\\Ability_Hunter_Pet_CoreHound",
+    ["Silithid"]     = "Interface\\Icons\\Ability_Hunter_Pet_Silithid",
+    ["Hyena"]        = "Interface\\Icons\\Ability_Hunter_Pet_Hyena",
+    ["Warp Stalker"] = "Interface\\Icons\\Ability_Hunter_Pet_WarpStalker",
+    ["Tallstrider"]  = "Interface\\Icons\\Ability_Hunter_Pet_Tallstrider",
+    ["Rhino"]        = "Interface\\Icons\\Ability_Hunter_Pet_Rhino",
+    ["Mammoth"]      = "Interface\\Icons\\Ability_Hunter_Pet_Mammoth",
+    ["Dragonhawk"]   = "Interface\\Icons\\Ability_Hunter_Pet_Dragonhawk",
+    ["Nether Ray"]   = "Interface\\Icons\\Ability_Hunter_Pet_NetherRay",
+    ["Sporebat"]     = "Interface\\Icons\\Ability_Hunter_Pet_Sporebat",
+    ["Wasp"]         = "Interface\\Icons\\Ability_Hunter_Pet_Wasp",
+    ["Wolf"]         = "Interface\\Icons\\Ability_Hunter_Pet_Wolf",
+    ["Serpent"]      = "Interface\\Icons\\Ability_Hunter_Pet_Serpent",
+    ["Quilen"]       = "Interface\\Icons\\Ability_Hunter_Pet_Quilen",
+    ["Chimaera"]     = "Interface\\Icons\\Ability_Hunter_Pet_Chimaera",
+    ["Water Strider"]= "Interface\\Icons\\Ability_Hunter_Pet_WaterStrider",
+    ["Clefthoof"]    = "Interface\\Icons\\Ability_Hunter_Pet_Clefthoof",
+    ["Worm"]         = "Interface\\Icons\\Ability_Hunter_Pet_Worm",
+    ["Carrion Bird"] = "Interface\\Icons\\Ability_Hunter_Pet_CarrionBird",
 }
 
 local function ShowPetReminderOverlay(playSound)
@@ -147,13 +197,13 @@ local function ShowPetReminderOverlay(playSound)
         local family = UnitCreatureFamily and UnitCreatureFamily("pet") or ""
         local petName = UnitName("pet") or "Your Pet"
         petReminderText:SetText(petName..(family~="" and ("  |cFFAAAAAA("..family..")|r") or ""))
-        local petIconPath = FAMILY_ICONS[family] or (API.playerClass=="HUNTER" and 132176 or 136218)
+        local petIconPath = FAMILY_ICONS[family] or (API.playerClass=="HUNTER" and "Interface\\Icons\\Ability_Hunter_BeastCall" or "Interface\\Icons\\Spell_Shadow_SummonImp")
         petReminderIcon:SetTexture(petIconPath)
         petReminderSub:SetText(GetPetAbilitySummary() or "|cFFAAAAAA(No ability data for this family)|r")
     else
         petReminderAccent:SetColorTexture(r,g,b,1)
         petReminderText:SetTextColor(r,g,b,1)
-        petReminderIcon:SetTexture(API.playerClass=="HUNTER" and 132176 or 136218)
+        petReminderIcon:SetTexture(API.playerClass=="HUNTER" and "Interface\\Icons\\Ability_Hunter_BeastCall" or "Interface\\Icons\\Spell_Shadow_SummonImp")
         petReminderText:SetText("Summon your pet!")
         petReminderSub:SetText("|cFFFF4444No pet active — abilities unavailable!|r")
         if playSound then

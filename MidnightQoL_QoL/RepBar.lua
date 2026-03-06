@@ -29,24 +29,47 @@ local function GetDB()
 end
 
 -- ── Reputation API compatibility shim ─────────────────────────────────────────
--- Returns: name, repMin, repMax, repValue  OR  nil if nothing tracked.
+-- Returns: name, repMin, repMax, repValue, isRenown, renownLevel  OR  nil.
+-- For standard factions: repMin/repMax are reaction thresholds, repValue is
+-- current standing — the bar shows progress within the current rank.
+-- For Renown (Major) factions: min=0, max=renownLevelThreshold,
+-- value=renownReputationEarned (rep within current renown level).
 local function GetWatchedFaction()
     -- Modern API (Dragonflight / TWW)
     if C_Reputation and C_Reputation.GetWatchedFactionData then
         local data = C_Reputation.GetWatchedFactionData()
         if data and data.name then
-            -- currentReactionThreshold / nextReactionThreshold map to min/max
+            -- Major/Renown factions (isMajorFaction == true) use a different data
+            -- layout — currentReactionThreshold/nextReactionThreshold are both 0,
+            -- and currentStanding is the raw cumulative rep, not rank-relative.
+            -- Use C_MajorFactions to get per-level progress instead.
+            if data.factionID and C_MajorFactions and C_MajorFactions.GetMajorFactionData then
+                local ok, mf = pcall(C_MajorFactions.GetMajorFactionData, data.factionID)
+                if ok and mf and mf.renownLevelThreshold and mf.renownLevelThreshold > 0 then
+                    local lo  = 0
+                    local hi  = mf.renownLevelThreshold
+                    local val = mf.renownReputationEarned or 0
+                    local lvl = mf.renownLevel or 0
+                    return data.name, lo, hi, val, true, lvl
+                end
+            end
+            -- Standard faction — use threshold-relative progress
             local lo  = data.currentReactionThreshold or 0
             local hi  = data.nextReactionThreshold    or 0
             local val = data.currentStanding          or 0
-            return data.name, lo, hi, val
+            -- Guard against degenerate data (hi == lo or hi == 0)
+            if hi <= lo then
+                -- Paragon or max-rank faction: treat as full
+                return data.name, 0, 1, 1, false, nil
+            end
+            return data.name, lo, hi, val, false, nil
         end
         return nil
     end
     -- Classic / Wrath fallback
     if GetWatchedFactionInfo then
         local name, _, _, _, _, repMin, repMax, repValue = GetWatchedFactionInfo()
-        if name then return name, repMin, repMax, repValue end
+        if name then return name, repMin, repMax, repValue, false, nil end
     end
     return nil
 end
@@ -122,27 +145,70 @@ repText:SetFont(repText:GetFont(), 9, "OUTLINE")
 -- ── Pending rep from completed quests ─────────────────────────────────────────
 local function GetPendingRepXP()
     if not C_QuestLog then return 0, 0 end
-    local factionName = select(1, GetWatchedFaction() or "")
-    if not factionName or factionName == "" then return 0, 0 end
+    -- Bail if quest log is open — SetSelectedQuest taints it
+    if QuestMapFrame and QuestMapFrame:IsShown() then return 0, 0 end
+    if QuestLogFrame  and QuestLogFrame:IsShown()  then return 0, 0 end
+
+    local watchedName, _, _, _, isRenown = GetWatchedFaction()
+    if not watchedName or watchedName == "" then return 0, 0 end
+
+    -- For renown/major factions, also grab the factionID for ID-based matching
+    local watchedFactionID = nil
+    if C_Reputation and C_Reputation.GetWatchedFactionData then
+        local data = C_Reputation.GetWatchedFactionData()
+        if data then watchedFactionID = data.factionID end
+    end
 
     local totalRep, numQuests = 0, 0
     local numEntries = C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries() or 0
+
     for i = 1, numEntries do
         local info = C_QuestLog.GetInfo and C_QuestLog.GetInfo(i)
         if info and not info.isHeader and info.questID then
-            if C_QuestLog.IsComplete and C_QuestLog.IsComplete(info.questID) then
-                local numFactions = GetNumQuestLogRewardFactions and GetNumQuestLogRewardFactions(i) or 0
-                for f = 1, numFactions do
-                    local fname, rep = GetQuestLogRewardFactionInfo(f, i)
-                    if fname and fname == factionName and rep and rep > 0 then
-                        totalRep  = totalRep  + rep
-                        numQuests = numQuests + 1
-                        break
+            local isComplete = C_QuestLog.IsComplete and C_QuestLog.IsComplete(info.questID)
+            if isComplete then
+                -- SetSelectedQuest is needed for GetNumQuestLogRewardFactions / GetQuestLogRewardFactionInfo
+                local selectOk = true
+                if C_QuestLog.SetSelectedQuest then
+                    selectOk = pcall(C_QuestLog.SetSelectedQuest, i)
+                end
+                if selectOk then
+                    local numFactions = GetNumQuestLogRewardFactions and GetNumQuestLogRewardFactions() or 0
+                    for f = 1, numFactions do
+                        local fname, rep, factionID = nil, 0, nil
+                        -- Try modern signature first (returns factionID as 3rd value in TWW)
+                        local ok, a, b, c = pcall(GetQuestLogRewardFactionInfo, f)
+                        if ok then
+                            fname    = a
+                            rep      = b or 0
+                            factionID = c  -- may be nil on older clients
+                        end
+                        if fname and rep and rep > 0 then
+                            local matched = false
+                            -- Prefer factionID match (works for renown where names may differ)
+                            if factionID and watchedFactionID and factionID == watchedFactionID then
+                                matched = true
+                            elseif fname == watchedName then
+                                matched = true
+                            end
+                            if matched then
+                                totalRep  = totalRep + rep
+                                numQuests = numQuests + 1
+                                break
+                            end
+                        end
                     end
                 end
             end
         end
     end
+
+    -- Restore previous selection to avoid disrupting quest log state
+    -- (we intentionally do NOT restore when quest log is open — we bailed at top)
+    if C_QuestLog.SetSelectedQuest then
+        pcall(C_QuestLog.SetSelectedQuest, 0)
+    end
+
     return totalRep, numQuests
 end
 
@@ -174,7 +240,7 @@ local function UpdateRepBar()
     HideNativeRepBar()
     if not db.repBarEnabled then repBar:Hide(); return end
 
-    local name, repMin, repMax, repValue = GetWatchedFaction()
+    local name, repMin, repMax, repValue, isRenown, renownLevel = GetWatchedFaction()
     if not name then repBar:Hide(); return end
 
     repBar:Show()
@@ -199,10 +265,12 @@ local function UpdateRepBar()
 
     if db.repBarShowText then
         local pctDisplay = math.floor(pct * 100 + 0.5)
-        local parts = { name .. "  " .. pctDisplay .. "%" }
+        local displayName = isRenown and (name .. " (Renown " .. (renownLevel or 0) .. ")") or name
+        local parts = { displayName .. "  " .. pctDisplay .. "%" }
         parts[#parts+1] = cur .. " / " .. range
         if pendingRep > 0 then
-            parts[#parts+1] = "|cFFFFD700+" .. pendingRep .. " pending (" .. pendingCount .. "q)|r"
+            local pendingLabel = isRenown and "renown" or "rep"
+            parts[#parts+1] = "|cFFFFD700+" .. pendingRep .. " pending " .. pendingLabel .. " (" .. pendingCount .. "q)|r"
         end
         repText:SetText(table.concat(parts, "  ·  "))
         repText:Show()
@@ -214,7 +282,7 @@ end
 -- ── Tooltip ───────────────────────────────────────────────────────────────────
 repBar:EnableMouse(true)
 repBar:SetScript("OnEnter", function()
-    local name, repMin, repMax, repValue = GetWatchedFaction()
+    local name, repMin, repMax, repValue, isRenown, renownLevel = GetWatchedFaction()
     if not name then return end
     local range  = repMax - repMin
     local cur    = repValue - repMin
@@ -223,18 +291,25 @@ repBar:SetScript("OnEnter", function()
 
     GameTooltip:SetOwner(repBar, "ANCHOR_TOP")
     GameTooltip:ClearLines()
-    GameTooltip:AddLine(name, 0.8, 0.2, 1.0)
+    local displayName = isRenown and (name .. " — Renown " .. (renownLevel or 0)) or name
+    GameTooltip:AddLine(displayName, 0.8, 0.2, 1.0)
     GameTooltip:AddLine(cur .. " / " .. range .. "  (" .. pct .. "%)", 1, 1, 1)
-    GameTooltip:AddLine(needed .. " rep to next rank", 0.8, 0.8, 0.8)
+    if isRenown then
+        GameTooltip:AddLine(needed .. " rep to Renown " .. ((renownLevel or 0) + 1), 0.8, 0.8, 0.8)
+    else
+        GameTooltip:AddLine(needed .. " rep to next rank", 0.8, 0.8, 0.8)
+    end
 
     local pendingRep, pendingCount = GetPendingRepXP()
     if pendingRep > 0 then
+        local pendingLabel = isRenown and "renown" or "rep"
+        local rankUpMsg    = isRenown and "Turning in would |cFF00FF00increase your Renown!|r" or "Turning in would |cFF00FF00rank you up!|r"
         GameTooltip:AddLine(" ", 1, 1, 1)
         GameTooltip:AddLine("Completed quests ready to turn in:", 1, 0.85, 0)
         GameTooltip:AddLine(pendingCount .. " quest" .. (pendingCount==1 and "" or "s") ..
-            "  →  +" .. pendingRep .. " rep", 1, 1, 0.6)
+            "  →  +" .. pendingRep .. " " .. pendingLabel, 1, 1, 0.6)
         if (cur + pendingRep) >= range then
-            GameTooltip:AddLine("Turning in would |cFF00FF00rank you up!|r", 0.9, 0.9, 0.9)
+            GameTooltip:AddLine(rankUpMsg, 0.9, 0.9, 0.9)
         end
     end
     GameTooltip:Show()

@@ -35,9 +35,7 @@ local function CreateColorSwatch(parent, label, dbKey, x, y)
     sw:SetPoint("LEFT", lbl, "RIGHT", 4, 0)
     local tex = sw:CreateTexture(nil, "ARTWORK")
     tex:SetAllPoints(sw)
-    local db = GetDB()
-    local c = db[dbKey] or DEFAULTS[dbKey]
-    tex:SetColorTexture(c[1], c[2], c[3], 1)
+    tex:SetColorTexture(0.5, 0.5, 0.5, 1)  -- placeholder; OnActivate syncs the real color
     sw.colorTex = tex
     sw.dbKey = dbKey
     sw:SetScript("OnClick", function(self)
@@ -47,16 +45,18 @@ local function CreateColorSwatch(parent, label, dbKey, x, y)
             r=cc[1], g=cc[2], b=cc[3],
             swatchFunc = function()
                 local r,g,b = ColorPickerFrame:GetColorRGB()
-                db2[self.dbKey] = {r,g,b}
+                GetDB()[self.dbKey] = {r,g,b}
                 self.colorTex:SetColorTexture(r,g,b,1)
             end,
             cancelFunc = function(prev)
-                db2[self.dbKey] = {prev.r, prev.g, prev.b}
+                GetDB()[self.dbKey] = {prev.r, prev.g, prev.b}
                 self.colorTex:SetColorTexture(prev.r, prev.g, prev.b, 1)
             end,
             hasOpacity = false,
         })
     end)
+    -- Don't set color from DB here — DB may not be loaded yet.
+    -- OnActivate() will sync the swatch when the tab is opened.
     return sw
 end
 
@@ -147,7 +147,10 @@ end)
 -- ── Populate / harvest ─────────────────────────────────────────────────────────
 local allSwatches = {swCasting,swChanneling,swNonInterrupt,swInterrupted,swFinished,swEmpowered,swBackground}
 
+local tabWasOpened = false
+
 local function OnActivate()
+    tabWasOpened = true
     local db = GetDB()
     enableCb:SetChecked(db.enabled ~= false)
     hideCb:SetChecked(db.hideBlizzard ~= false)
@@ -167,6 +170,7 @@ local function OnActivate()
 end
 
 local function HarvestValues()
+    if not tabWasOpened then return end  -- never opened = nothing to harvest, don't overwrite DB
     local db = GetDB()
     db.enabled       = enableCb:GetChecked()
     db.hideBlizzard  = hideCb:GetChecked()
@@ -182,23 +186,23 @@ local function HarvestValues()
     if API.ApplyCastbarPosition then API.ApplyCastbarPosition() end
 end
 
--- Hook core save button
-local saveBtn = _G["MidnightQoLSaveBtn"]
-if saveBtn then
-    saveBtn:HookScript("OnClick", HarvestValues)
+-- Register with core pre-save system so HarvestValues always runs before SaveSpecProfile
+if API.RegisterPreSaveCallback then
+    API.RegisterPreSaveCallback(HarvestValues)
 else
-    -- Register for when save button becomes available
+    -- Fallback: hook the save button directly once it exists
     local frame = CreateFrame("Frame")
-    frame:RegisterEvent("ADDON_LOADED")
-    frame:SetScript("OnEvent", function(self, event, addonName)
-        if addonName == "MidnightQoL" then
-            C_Timer.After(0.5, function()
-                local btn = _G["MidnightQoLSaveBtn"]
-                if btn then btn:HookScript("OnClick", HarvestValues) end
-            end)
-            self:UnregisterAllEvents()
-        end
+    frame:RegisterEvent("PLAYER_LOGIN")
+    frame:SetScript("OnEvent", function(self)
+        local btn = _G["MidnightQoLSaveBtn"]
+        if btn then btn:HookScript("OnClick", HarvestValues) end
+        self:UnregisterAllEvents()
     end)
 end
+
+-- Flush text box values to CastbarDB on logout so they survive without needing Save
+local logoutFrame = CreateFrame("Frame")
+logoutFrame:RegisterEvent("PLAYER_LOGOUT")
+logoutFrame:SetScript("OnEvent", function() HarvestValues() end)
 
 API.RegisterTab("Castbar", cf, OnActivate, 70, nil, 4)

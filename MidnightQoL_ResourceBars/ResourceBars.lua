@@ -80,6 +80,18 @@ local PIP_SHAPES = {
         label="Lightning",
         tex="Interface\\AddOns\\MidnightQoL\\Images\\pip_lightning",
     },
+    -- ── Spearhead ─────────────────────────────────────────────────────────────
+    {
+        key="spearhead",
+        label="Spearhead",
+        tex="Interface\\AddOns\\MidnightQoL\\Images\\pip_spearhead",
+    },
+    -- ── Icicle ────────────────────────────────────────────────────────────────
+    {
+        key="icicle",
+        label="Icicle",
+        tex="Interface\\AddOns\\MidnightQoL\\Images\\pip_icicle",
+    },
 }
 
 local PIP_SHAPE_INDEX = {}
@@ -126,75 +138,19 @@ API.ColorPip      = ColorPip
 API.ApplyPipShape = ApplyPipShape
 
 local MAELSTROM_WEAPON = 21  -- Enhancement buff (already declared above; kept for clarity)
-local WILD_IMPS        = 22  -- fake power type: Demonology Warlock Wild Imps
+local ICICLES         = 23  -- Frost Mage: Icicles stacking buff (205473)
+local TIP_OF_SPEAR    = 24  -- Survival Hunter: Tip of the Spear stacking buff (260286)
+local RENEWING_MIST   = 25  -- Mistweaver Monk: count of active Renewing Mist across group (119611)
 
--- ── Wild Imp count: read from Implosion button's Count FontString ─────────────
--- GetActionInfo and C_ActionBar APIs can't reliably identify Implosion by spell ID
--- on paged/override bars. Instead we find the button once OOC using SpellIsTargeting
--- or by checking the button's spell name via GameTooltip, then cache the FontString.
--- Simplest reliable method: use GetActionInfo with the correct paged slot offset.
-local IMPLOSION_SPELL_ID = 196277
-local implosionCountFontStr = nil
-
-local function FindImplosionCountFontStr()
-    -- GetActionInfo may return a valid spellID that doesn't match 196277 directly
-    -- (can happen with overrideSpellID substitution). Match by spell name instead,
-    -- which is always safe and works regardless of ID remapping.
-    local implosionName
-    local ok, info = pcall(C_Spell.GetSpellInfo, IMPLOSION_SPELL_ID)
-    if ok and info and info.name then
-        implosionName = info.name
-    else
-        implosionName = "Implosion"  -- hardcoded fallback
-    end
-
-    local prefixes = {
-        "ActionButton","MultiBarBottomLeftButton","MultiBarBottomRightButton",
-        "MultiBarRightButton","MultiBarLeftButton",
-        "MultiBar5Button","MultiBar6Button","MultiBar7Button","MultiBar8Button",
-    }
-    for _, prefix in ipairs(prefixes) do
-        for i = 1, 12 do
-            local name = prefix .. i
-            local btn = _G[name]
-            if btn and btn.action then
-                local atype, _, spellID = GetActionInfo(btn.action)
-                if atype == "spell" and spellID then
-                    -- Match by ID first, then by name as fallback
-                    local matched = (spellID == IMPLOSION_SPELL_ID)
-                    if not matched then
-                        local nok, ninfo = pcall(C_Spell.GetSpellInfo, spellID)
-                        if nok and ninfo and ninfo.name == implosionName then
-                            matched = true
-                        end
-                    end
-                    if matched then
-                        local fs = btn.Count or _G[name .. "Count"]
-                        if fs and type(fs.GetText) == "function" then return fs end
-                    end
-                end
-            end
-        end
-    end
-    return nil
-end
-
-local function GetWildImpCount()
-    if InCombatLockdown() then
-        if not implosionCountFontStr then return 0 end
-        return tonumber(implosionCountFontStr:GetText()) or 0
-    end
-    implosionCountFontStr = FindImplosionCountFontStr()
-    if not implosionCountFontStr then return 0 end
-    return tonumber(implosionCountFontStr:GetText()) or 0
-end
-
+local ICICLES_SPELL_ID      = 205473
+local TIP_OF_SPEAR_SPELL_ID = 260286
+local RENEWING_MIST_SPELL_ID = 119611
 local SECONDARY_POWER_TYPES = {
     [Enum.PowerType.RunicPower]=true, [Enum.PowerType.HolyPower]=true, [Enum.PowerType.Chi]=true,
     [Enum.PowerType.ComboPoints]=true, [Enum.PowerType.ArcaneCharges]=true, [Enum.PowerType.SoulShards]=true,
     [Enum.PowerType.LunarPower]=true, [Enum.PowerType.Maelstrom]=true, [Enum.PowerType.Insanity]=true,
     [Enum.PowerType.Essence]=true, [Enum.PowerType.Runes]=true, [STAGGER]=true, [MAELSTROM_WEAPON]=true,
-    [WILD_IMPS]=true,
+    [ICICLES]=true, [TIP_OF_SPEAR]=true, [RENEWING_MIST]=true,
 }
 
 -- ── Spec → valid power types ──────────────────────────────────────────────────
@@ -221,15 +177,15 @@ local SPEC_POWERS = {
     -- Hunter
     [253]={Enum.PowerType.Focus},
     [254]={Enum.PowerType.Focus},
-    [255]={Enum.PowerType.Focus},
+    [255]={Enum.PowerType.Focus, TIP_OF_SPEAR},
     -- Mage
     [62] ={Enum.PowerType.Mana, Enum.PowerType.ArcaneCharges},
     [63] ={Enum.PowerType.Mana},
-    [64] ={Enum.PowerType.Mana},
+    [64] ={Enum.PowerType.Mana, ICICLES},
     -- Monk
     [268]={Enum.PowerType.Energy, STAGGER},               -- Brewmaster: Energy + Stagger (no Chi)
     [269]={Enum.PowerType.Energy, Enum.PowerType.Chi},
-    [270]={Enum.PowerType.Mana},
+    [270]={Enum.PowerType.Mana, RENEWING_MIST},
     -- Paladin
     [65] ={Enum.PowerType.Mana, Enum.PowerType.HolyPower},
     [66] ={Enum.PowerType.Mana},
@@ -248,7 +204,7 @@ local SPEC_POWERS = {
     [264]={Enum.PowerType.Mana},                             -- Restoration
     -- Warlock
     [265]={Enum.PowerType.Mana, Enum.PowerType.SoulShards},
-    [266]={Enum.PowerType.Mana, Enum.PowerType.SoulShards, WILD_IMPS},  -- Demonology
+    [266]={Enum.PowerType.Mana, Enum.PowerType.SoulShards},  -- Demonology
     [267]={Enum.PowerType.Mana, Enum.PowerType.SoulShards},
     -- Warrior
     [71] ={Enum.PowerType.Rage},
@@ -263,12 +219,46 @@ local barConfigs = {}
 local barFrames  = {}
 local roleUnitCache = {}
 
+-- ── Threshold sound state ─────────────────────────────────────────────────────
+-- Tracks the previous integer stack count per bar slot so we only fire the
+-- sound when stacks cross the threshold (not on every tick).
+local thresholdPrev = {}  -- [barIndex] = last integer stack count
+
+local THRESHOLD_POWER_TYPES = { [21]=true, [23]=true, [24]=true }
+
+local function CheckThresholdSound(i, cfg, cur, max)
+    if not cfg.threshEnabled then return end
+    local pt = cfg.powerType
+    local crossValue, prev
+    if pt == STAGGER then
+        -- Stagger: threshold is a percentage of max health
+        if not max or max == 0 then return end
+        local pct = math.floor((cur / max) * 100)
+        local prevRaw = thresholdPrev[i] or 0
+        local prevPct = math.floor((prevRaw / max) * 100)
+        local threshold = cfg.threshValue or 20
+        if pct >= threshold and prevPct < threshold then
+            if cfg.threshSound then API.PlayCustomSound(cfg.threshSound, cfg.threshSoundIsID) end
+        end
+        thresholdPrev[i] = cur
+        return
+    end
+    if not THRESHOLD_POWER_TYPES[pt] then return end
+    -- Stack-based: fire when integer stacks cross up to threshold
+    local stacks = math.floor(cur)
+    local prevStacks = thresholdPrev[i] or 0
+    local threshold = cfg.threshValue or 5
+    if stacks >= threshold and prevStacks < threshold then
+        if cfg.threshSound then API.PlayCustomSound(cfg.threshSound, cfg.threshSoundIsID) end
+    end
+    thresholdPrev[i] = stacks
+end
+
 -- ── Utility ──────────────────────────────────────────────────────────────────
 local function ResolveUnit(unitCfg)
     if not unitCfg then return "player" end
     return roleUnitCache[unitCfg] or unitCfg
 end
-
 
 local function RefreshBar(i)
     local f = barFrames[i]
@@ -290,15 +280,62 @@ local function RefreshBar(i)
                   or C_UnitAuras.GetPlayerAuraBySpellID(MAELSTROM_WEAPON_SPELL_ID_OLD)
         cur = aura and aura.applications or 0
         max = 10
-    elseif pt == WILD_IMPS then
-        -- Wild Imps: read count from Implosion action button (safe frame-state read)
-        cur = GetWildImpCount()
-        -- max pips driven by cfg.maxPips; default display cap of 6 for Demonology
-        max = (cfg.maxPips and cfg.maxPips > 0) and cfg.maxPips or 6
+    elseif pt == ICICLES then
+        -- Icicles: stacking buff on Frost Mage, max 5
+        local aura = C_UnitAuras.GetPlayerAuraBySpellID(ICICLES_SPELL_ID)
+        cur = aura and aura.applications or 0
+        max = 5
+    elseif pt == TIP_OF_SPEAR then
+        -- Tip of the Spear: stacking buff on Survival Hunter, max 3
+        local aura = C_UnitAuras.GetPlayerAuraBySpellID(TIP_OF_SPEAR_SPELL_ID)
+        cur = aura and aura.applications or 0
+        max = 3
+    elseif pt == RENEWING_MIST then
+        -- Renewing Mist: bar fill = fraction of time remaining on the soonest-expiring instance.
+        -- This gives a visual "countdown" bar for the next RM to fall off.
+        -- We also count active instances for the value text.
+        local count = 0
+        local earliest = math.huge   -- expiry time of soonest RM
+        local rmDuration = 20        -- RM base duration in seconds (used as fill denominator)
+        local numMembers = IsInRaid() and GetNumGroupMembers() or GetNumSubgroupMembers()
+        local prefix = IsInRaid() and "raid" or "party"
+        local units = {"player"}
+        for gi = 1, numMembers do units[#units+1] = prefix .. gi end
+        for _, u in ipairs(units) do
+            if UnitExists(u) then
+                local i2 = 1
+                while true do
+                    local name2, _, _, _, dur2, expTime2, _, _, _, spellId2 = UnitBuff(u, i2)
+                    if not name2 then break end
+                    if spellId2 == RENEWING_MIST_SPELL_ID then
+                        count = count + 1
+                        if expTime2 and expTime2 > 0 and expTime2 < earliest then
+                            earliest = expTime2
+                            if dur2 and dur2 > 0 then rmDuration = dur2 end
+                        end
+                    end
+                    i2 = i2 + 1
+                end
+            end
+        end
+        -- Bar fill = fraction of duration remaining on the soonest expiry
+        if count > 0 and earliest < math.huge then
+            local remaining = math.max(0, earliest - GetTime())
+            cur = remaining
+            max = rmDuration
+        else
+            cur = 0
+            max = 1
+        end
+        f._rmCount      = count
+        f._rmNextExpiry = (earliest < math.huge) and earliest or nil
     else
         cur = GetPower(unit, pt) or 0
         max = GetPowerMax(unit, pt) or 1
     end
+
+    -- Fire threshold sound if stacks/percent just reached the configured value
+    CheckThresholdSound(i, cfg, cur, max)
 
     if cfg.isPip then
         -- Use the live game maximum as the pip count so resources like Combo Points
@@ -336,11 +373,34 @@ local function RefreshBar(i)
         f.bar:SetAllPoints(f)  -- ensure it's full width (may have been moved)
         f.bar:SetMinMaxValues(0, max)
         f.bar:SetValue(cur)
-        f.bar:SetStatusBarColor(cfg.r or 0.2, cfg.g or 0.6, cfg.b or 1, 0.9)
+        -- For stagger: switch to high color when pct exceeds the threshold
+        if pt == STAGGER and cfg.threshEnabled and cfg.staggerHighR and max > 0 then
+            local pct = (cur / max) * 100
+            local threshold = cfg.threshValue or 20
+            if pct >= threshold then
+                f.bar:SetStatusBarColor(cfg.staggerHighR, cfg.staggerHighG or 0.3, cfg.staggerHighB or 0, 0.9)
+            else
+                f.bar:SetStatusBarColor(cfg.r or 0.2, cfg.g or 0.6, cfg.b or 1, 0.9)
+            end
+        else
+            f.bar:SetStatusBarColor(cfg.r or 0.2, cfg.g or 0.6, cfg.b or 1, 0.9)
+        end
     end
 
     local pipN = (cfg.isPip and ((cfg.maxPips and cfg.maxPips > 0) and cfg.maxPips or max)) or max
-    f.value:SetText(cfg.showValue and (cur .. "/" .. math.floor(pipN)) or "")
+    local valueText
+    if pt == RENEWING_MIST and cfg.showValue then
+        local rmCount = f._rmCount or 0
+        if rmCount > 0 and f._rmNextExpiry then
+            local remaining = math.max(0, f._rmNextExpiry - GetTime())
+            valueText = rmCount .. " RM  " .. string.format("%.1fs", remaining)
+        else
+            valueText = "0 RM"
+        end
+    else
+        valueText = cfg.showValue and (cur .. "/" .. math.floor(pipN)) or ""
+    end
+    f.value:SetText(valueText)
     f.label:SetText(cfg.showLabel and (cfg.label or "") or "")
 end
 
@@ -415,8 +475,6 @@ local function RebuildBars()
                 local liveMax
                 if cfg.powerType == MAELSTROM_WEAPON then
                     liveMax = 10
-                elseif cfg.powerType == WILD_IMPS then
-                    liveMax = 6  -- sensible default max for pip display
                 else
                     liveMax = GetPowerMax(ResolveUnit(cfg.unit), cfg.powerType) or 10
                 end
@@ -464,9 +522,10 @@ API.barConfigs                    = barConfigs
 API.MAELSTROM_WEAPON              = MAELSTROM_WEAPON
 API.MAELSTROM_WEAPON_SPELL_ID     = MAELSTROM_WEAPON_SPELL_ID
 API.MAELSTROM_WEAPON_SPELL_ID_OLD = MAELSTROM_WEAPON_SPELL_ID_OLD
+API.ICICLES                       = ICICLES
+API.TIP_OF_SPEAR                  = TIP_OF_SPEAR
+API.RENEWING_MIST                 = RENEWING_MIST
 API.SPEC_POWERS                   = SPEC_POWERS
-API.WILD_IMPS                     = WILD_IMPS
-API.GetWildImpCount               = GetWildImpCount
 
 -- ── Layout handle provider ────────────────────────────────────────────────────
 API.RegisterLayoutHandles(function()
@@ -510,10 +569,7 @@ Events:RegisterEvent("GROUP_ROSTER_UPDATE")
 Events:RegisterEvent("ACTIONBAR_SLOT_CHANGED")
 
 Events:SetScript("OnEvent", function(self, event, unit)
-    if event == "ACTIONBAR_SLOT_CHANGED" then
-        implosionCountFontStr = nil
-        return
-    end
+    if event == "ACTIONBAR_SLOT_CHANGED" then return end
     if event == "GROUP_ROSTER_UPDATE" or event == "PLAYER_ENTERING_WORLD" then
         wipe(roleUnitCache)
         for _, u in ipairs({"player","party1","party2","party3","party4"}) do

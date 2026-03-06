@@ -109,16 +109,16 @@ icon:Hide()
 f.icon = icon
 
 -- Spell name
-local nameStr = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-nameStr:SetPoint("LEFT", f, "LEFT", 5, 1)
+local nameStr = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+nameStr:SetPoint("LEFT", bar, "LEFT", 5, 1)
 nameStr:SetFont(nameStr:GetFont(), 11, "OUTLINE")
 nameStr:SetTextColor(1, 1, 1, 1)
 nameStr:SetJustifyH("LEFT")
 f.nameStr = nameStr
 
 -- Timer
-local timerStr = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-timerStr:SetPoint("RIGHT", f, "RIGHT", -5, 1)
+local timerStr = bar:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+timerStr:SetPoint("RIGHT", bar, "RIGHT", -5, 1)
 timerStr:SetFont(timerStr:GetFont(), 11, "OUTLINE")
 timerStr:SetTextColor(1, 1, 1, 1)
 timerStr:SetJustifyH("RIGHT")
@@ -235,16 +235,22 @@ end
 local finishTimer = nil
 local function StopCast(interrupted)
     if finishTimer then finishTimer:Cancel(); finishTimer = nil end
+    if f.interrupted and interrupted then return end  -- already showing interrupted, don't stack
     f.casting    = false
     f.channeling = false
     f.latTex:Hide()
     HideTicks()
+    if f.interrupted then return end  -- UNIT_SPELLCAST_STOP after INTERRUPTED — bar already handled
     if not f:IsShown() then return end
     if interrupted then
+        f.interrupted = true
         SetBarColor("colorInterrupted")
-        f.nameStr:SetText((f.nameStr:GetText() or "") .. " |cFFFF4444[Interrupted]|r")
+        local spellName = f.nameStr:GetText() or ""
+        -- Strip any previous [Interrupted] tag before appending (safety net)
+        spellName = spellName:gsub("%s*|cFFFF4444%[Interrupted%]|r", "")
+        f.nameStr:SetText(spellName .. " |cFFFF4444[Interrupted]|r")
         f.timerStr:SetText("")
-        finishTimer = C_Timer.NewTimer(0.7, function() f:Hide() end)
+        finishTimer = C_Timer.NewTimer(0.7, function() f.interrupted = nil; f:Hide() end)
     else
         local db = GetDB()
         local dur = db.finishedFlashDur or DEFAULTS.finishedFlashDur
@@ -310,6 +316,8 @@ end)
 -- ── Events ─────────────────────────────────────────────────────────────────────
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
+events:RegisterEvent("PLAYER_LOGIN")
+events:RegisterEvent("PLAYER_ENTERING_WORLD")
 events:RegisterEvent("UNIT_SPELLCAST_START")
 events:RegisterEvent("UNIT_SPELLCAST_CHANNEL_START")
 events:RegisterEvent("UNIT_SPELLCAST_STOP")
@@ -337,12 +345,35 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
     if event == "ADDON_LOADED" then
         if unit == "MidnightQoL_Castbar" then
             ApplyPosition()
-            local db = GetDB()
-            if db.hideBlizzard and db.enabled then
-                if CastingBarFrame then
-                    CastingBarFrame:UnregisterAllEvents()
-                    CastingBarFrame:Hide()
-                    CastingBarFrame:SetScript("OnShow", function(s) s:Hide() end)
+        end
+        return
+    end
+
+    if event == "PLAYER_LOGIN" or event == "PLAYER_ENTERING_WORLD" then
+        ApplyPosition()
+        local db = GetDB()
+        if db.hideBlizzard and db.enabled then
+            -- TWW uses PlayerCastingBarFrame; pre-TWW uses CastingBarFrame.
+            -- Also cover the override action bar and pet castbar.
+            local targets = {
+                "CastingBarFrame",
+                "PlayerCastingBarFrame",
+                "OverrideActionBarCastBar",
+                "PetCastingBarFrame",
+            }
+            for _, frameName in ipairs(targets) do
+                local frame = _G[frameName]
+                if frame then
+                    pcall(function()
+                        frame:UnregisterAllEvents()
+                        frame:Hide()
+                        frame:SetScript("OnShow", function(s) s:Hide() end)
+                        if frame.UnregisterEvent then
+                            frame:UnregisterEvent("UNIT_SPELLCAST_START")
+                            frame:UnregisterEvent("UNIT_SPELLCAST_CHANNEL_START")
+                            frame:UnregisterEvent("UNIT_SPELLCAST_EMPOWER_START")
+                        end
+                    end)
                 end
             end
         end
@@ -366,13 +397,13 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
         if name then StartChannel(name, startTime, endTime, notInterrupt, spellID) end
 
     elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_EMPOWER_STOP" then
-        if f.casting then StopCast(false) end
+        StopCast(false)
 
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-        if f.channeling then StopCast(false) end
+        StopCast(false)
 
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
-        if f.casting then StopCast(false) end
+        StopCast(false)
 
     elseif event == "UNIT_SPELLCAST_INTERRUPTED" then
         StopCast(true)

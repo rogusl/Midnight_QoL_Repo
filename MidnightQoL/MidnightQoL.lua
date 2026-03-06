@@ -112,7 +112,10 @@ API.GetAvailableImages = GetAvailableImages
 
 -- ── Spec profile system ────────────────────────────────────────────────────────
 local function GetSpecProfileKey()
-    return (API.playerClass or "UNKNOWN") .. "_" .. tostring(API.currentSpecID or 0)
+    -- Universal profile: one layout shared across all characters and specs.
+    -- Change "global" to (API.playerClass.."_"..tostring(API.currentSpecID or 0))
+    -- if you ever want per-class/spec profiles back.
+    return "global"
 end
 
 local function GetOrCreateSpecProfile(key)
@@ -266,7 +269,7 @@ local function RebuildTabBar()
             ActivateTabByIndex(self.tabIndex)
         end)
         tabButtons[i] = btn
-        nextX = nextX + w + TAB_GAP
+        if entry.hidden then btn:Hide() else nextX = nextX + w + TAB_GAP end
     end
     -- Re-activate current tab to fix highlight state
     if #tabRegistry > 0 then
@@ -282,6 +285,7 @@ local function RegisterTab(label, frame, onActivate, widthOverride, onDeactivate
         onDeactivate = onDeactivate,
         width        = widthOverride,
         priority     = priority or 50,
+        hidden       = (BuffAlertDB and BuffAlertDB.tabsEnabled and BuffAlertDB.tabsEnabled[label] == false) or false,
     })
     -- Sort by priority (lower number = further left)
     table.sort(tabRegistry, function(a, b) return (a.priority or 50) < (b.priority or 50) end)
@@ -296,6 +300,35 @@ API.RegisterTab        = RegisterTab
 API.ActivateTabByIndex = ActivateTabByIndex
 API.GetCurrentTabIndex = function() return currentTabIndex end
 API.GetTabRegistry     = function() return tabRegistry end
+
+-- Hide/show a tab by label. If the active tab is hidden, falls back to tab 1.
+function API.SetTabEnabled(label, enabled)
+    for i, entry in ipairs(tabRegistry) do
+        if entry.label == label then
+            entry.hidden = not enabled
+            if tabButtons[i] then
+                if enabled then tabButtons[i]:Show() else tabButtons[i]:Hide() end
+            end
+            -- If we just hid the active tab, jump to General (index 1)
+            if not enabled and currentTabIndex == i then
+                ActivateTabByIndex(1)
+            end
+            -- Persist
+            if BuffAlertDB then
+                BuffAlertDB.tabsEnabled = BuffAlertDB.tabsEnabled or {}
+                BuffAlertDB.tabsEnabled[label] = enabled
+            end
+            return
+        end
+    end
+end
+
+function API.IsTabEnabled(label)
+    if BuffAlertDB and BuffAlertDB.tabsEnabled and BuffAlertDB.tabsEnabled[label] ~= nil then
+        return BuffAlertDB.tabsEnabled[label]
+    end
+    return true  -- default on
+end
 
 -- ── Bottom bar ─────────────────────────────────────────────────────────────────
 -- Save button sits at BOTTOMRIGHT; add-buttons from sub-addons sit at BOTTOMLEFT.
@@ -884,8 +917,13 @@ coreEvents:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 
 coreEvents:SetScript("OnEvent",function(self,event,...)
     if event=="PLAYER_LOGIN" then
-        if not BuffAlertDB then
+        local CURRENT_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)("MidnightQoL", "Version") or "2.2"
+        local isFirstRun  = (BuffAlertDB == nil)
+        local isUpdate    = (not isFirstRun) and (BuffAlertDB.dbVersion ~= CURRENT_VERSION)
+
+        if isFirstRun then
             BuffAlertDB={
+                dbVersion=CURRENT_VERSION,
                 specProfiles={}, minimapAngle=225, minimapRadius=80,
                 minimapBtnShown=true, mainFramePos=nil,
                 whisperList={}, whisperEnabled=false, ignoreOutgoingWhispers=true,
@@ -893,11 +931,36 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
                 breakBarR=0.2,breakBarG=0.6,breakBarB=1.0,breakBarX=nil,breakBarY=nil,
                 petReminderEnabled=false,petReminderSize=18,
                 petReminderR=1,petReminderG=0.4,petReminderB=0,petReminderX=0,petReminderY=80,
-                buffDebuffAlertsEnabled=true,whisperIndicatorEnabled=true,resourceBarsEnabled=true,
-                pullTimerEnabled=true,breakTimerEnabled=true,cdMismatchSuppressed=false,
+                -- All feature modules off by default on fresh install
+                buffDebuffAlertsEnabled=false,
+                whisperIndicatorEnabled=false,
+                resourceBarsEnabled=false,
+                pullTimerEnabled=false,
+                breakTimerEnabled=false,
+                poisonAlertEnabled=false,
+                raidbuffCheckEnabled=false,
+                battlerezEnabled=false,
+                bagUpgradeEnabled=false,
+                sellConfirmEnabled=false,
+                cdMismatchSuppressed=false,
+                uiFadeNameplates=100,uiFadeMinimap=100,uiFadeUnitFrames=100,uiFadeActionBars=100,
             }
         else
             if not BuffAlertDB.specProfiles then BuffAlertDB.specProfiles={} end
+            if isUpdate then
+                -- Preserve existing settings but stamp new version and
+                -- default any newly-added keys to false (opt-in on update too)
+                local newKeys = {
+                    bagUpgradeEnabled=false,
+                    sellConfirmEnabled=false,
+                    expBarHideAtMax=true,
+                    uiFadeActionBars=100,
+                }
+                for k,v in pairs(newKeys) do
+                    if BuffAlertDB[k] == nil then BuffAlertDB[k] = v end
+                end
+                BuffAlertDB.dbVersion = CURRENT_VERSION
+            end
         end
 
         API.playerClass   = select(2,UnitClass("player")) or "UNKNOWN"
@@ -930,15 +993,29 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
             RegisterTab("Profiles", API._profilesFrame, nil, 90, nil, 5)
         end
 
+        -- Show setup guide automatically on first install or after an update
+        if isFirstRun or isUpdate then
+            C_Timer.After(1, function()
+                local verb = isFirstRun and "installed" or "updated to v"..CURRENT_VERSION
+                print("|cFF00CCFF[MidnightQoL]|r "..verb.." — all modules are |cFFFFD700off by default|r. Open the Setup Guide to enable what you need.")
+                if setupPanel then
+                    setupPanel:Show()
+                    -- Also open main window so the player can see the tabs
+                    mainFrame:Show()
+                    if tabButtons[1] then ActivateTabByIndex(1) end
+                end
+            end)
+        end
+
     elseif event=="PLAYER_SPECIALIZATION_CHANGED" then
         local newSpecID=GetSpecializationInfo(GetSpecialization()) or 0
         if newSpecID~=API.currentSpecID then
             API.currentSpecID=newSpecID
-            LoadSpecProfile()
+            -- Universal profile mode: no reload needed on spec change,
+            -- all specs share the same "global" layout.
             local si=GetSpecialization and GetSpecialization()
             local sn=si and select(2,GetSpecializationInfo(si)) or "Unknown"
             specInfoLabel:SetText("Active Spec: |cFFFFD700"..(API.playerClass or "?").." – "..tostring(sn).."|r")
-            print("|cFF00FF00[MidnightQoL]|r Switched to spec profile: "..GetSpecProfileKey())
         end
     end
 end)
@@ -968,42 +1045,6 @@ SlashCmdList["MQLDEBUG"]=function()
     if _G["CSGenDebugCheck"] then _G["CSGenDebugCheck"]:SetChecked(API.DEBUG) end
 end
 
--- /mqlimps — diagnose Wild Imp detection
-SLASH_MQLIMPS1="/mqlimps"
-SlashCmdList["MQLIMPS"]=function()
-    local IMPLOSION_SPELL_ID = 196277
-    print("|cFF00CCFF[MidnightQoL Imps Debug]|r ----------")
-
-    local page = GetActionBarPage and GetActionBarPage() or 1
-    print("Current action bar page: " .. tostring(page))
-
-    -- Print raw return values from GetActionInfo for slots 1-12
-    print("Raw GetActionInfo for slots 1-12:")
-    for slot = 1, 12 do
-        local atype, aid, spellID = GetActionInfo(slot)
-        if atype then
-            print("  slot " .. slot .. ": type=" .. tostring(atype) ..
-                " aid=" .. tostring(aid) ..
-                " spellID=" .. tostring(spellID) ..
-                (spellID == IMPLOSION_SPELL_ID and " |cFF00FF00<< MATCH|r" or ""))
-        end
-    end
-
-    -- Also check ActionButton9.action directly with raw GetActionInfo
-    local btn9 = _G["ActionButton9"]
-    if btn9 then
-        local atype, aid, spellID = GetActionInfo(btn9.action)
-        print("ActionButton9.action=" .. tostring(btn9.action) ..
-            " -> type=" .. tostring(atype) ..
-            " spellID=" .. tostring(spellID))
-    end
-
-    -- Direct FontString read
-    local fs = _G["ActionButton9"] and (_G["ActionButton9"].Count or _G["ActionButton9Count"])
-    print("ActionButton9Count:GetText() = |cFFFFFF00" .. tostring(fs and fs:GetText() or "nil") .. "|r")
-    print("GetWildImpCount() = |cFFFFFF00" .. tostring(MidnightQoLAPI and MidnightQoLAPI.GetWildImpCount and MidnightQoLAPI.GetWildImpCount() or "?") .. "|r")
-    print("|cFF00CCFF[MidnightQoL Imps Debug]|r ----------")
-end
 
 -- /mqlauras — dump all current player auras with spell IDs
 -- Use immediately after casting a suspect spell to identify what it puts on you

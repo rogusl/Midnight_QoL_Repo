@@ -5,6 +5,7 @@ package-as: MidnightQoL_Suite
 move-folders:
   MidnightQoL: MidnightQoL
   MidnightQoL_BuffAlerts: MidnightQoL_BuffAlerts
+  MidnightQoL_Castbar: MidnightQoL_Castbar
   MidnightQoL_QoL: MidnightQoL_QoL
   MidnightQoL_ResourceBars: MidnightQoL_ResourceBars
   MidnightQoL_Whisper: MidnightQoL_Whisper
@@ -14,6 +15,7 @@ ignore:
   - .gitignore
   - .github
   - .git
+  - bump_version.py
   - generate_manifests.py
   - generate_manifests.ps1
   - README.md

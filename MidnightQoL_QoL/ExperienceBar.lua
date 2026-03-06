@@ -200,8 +200,18 @@ end
 -- GetQuestLogRewardXP(questID) → THEN check IsComplete/ReadyForTurnIn.
 -- Getting XP first (unconditionally) is what makes it work — gating behind
 -- the completion check first causes GetQuestLogRewardXP to return 0.
+--
+-- Taint note: C_QuestLog.SetSelectedQuest modifies Blizzard's quest selection
+-- state. If the QuestMapFrame (quest log UI) is open when we call it, WoW flags
+-- our addon as the taint source and subsequent quest log interactions by the
+-- player throw "action forbidden" errors. We skip the scan entirely while the
+-- quest log is visible to avoid this.
 local function GetPendingQuestXP()
     if not C_QuestLog then return 0, 0 end
+
+    -- Bail out if the player has the quest log open — SetSelectedQuest taints it
+    if QuestMapFrame and QuestMapFrame:IsShown() then return 0, 0 end
+    if QuestLogFrame  and QuestLogFrame:IsShown()  then return 0, 0 end
 
     local numEntries = (C_QuestLog.GetNumQuestLogEntries and C_QuestLog.GetNumQuestLogEntries()) or 0
     if numEntries == 0 then return 0, 0 end
@@ -211,7 +221,10 @@ local function GetPendingQuestXP()
     local totalXP, numQuests = 0, 0
 
     for i = 1, numEntries do
-        if C_QuestLog.SetSelectedQuest then C_QuestLog.SetSelectedQuest(i) end
+        if C_QuestLog.SetSelectedQuest then
+            local ok = pcall(C_QuestLog.SetSelectedQuest, i)
+            if not ok then break end  -- taint crept in mid-loop; abort cleanly
+        end
 
         local questID = (C_QuestLog.GetQuestIDForLogIndex and C_QuestLog.GetQuestIDForLogIndex(i)) or 0
         if questID > 0 then
@@ -230,7 +243,7 @@ local function GetPendingQuestXP()
     end
 
     if prevSelected and prevSelected > 0 and C_QuestLog.SetSelectedQuest then
-        C_QuestLog.SetSelectedQuest(prevSelected)
+        pcall(C_QuestLog.SetSelectedQuest, prevSelected)
     end
 
     return totalXP, numQuests
@@ -286,9 +299,9 @@ local function UpdateBar()
     local level    = UnitLevel("player")
     local maxLevel = GetMaxPlayerLevel and GetMaxPlayerLevel() or 80
 
-    -- At max level: show reputation bar if enabled
+    -- At max level
     if level >= maxLevel then
-        if db.expBarHideAtMax and not db.expBarShowRep then
+        if db.expBarHideAtMax then
             expBar:Hide(); return
         end
         if db.expBarShowRep then

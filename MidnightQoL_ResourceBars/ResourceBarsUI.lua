@@ -50,7 +50,9 @@ local POWER_ENTRIES = {
     {name="Essence",       type=19},
     {name="Stagger",            type=20},
     {name="Maelstrom Weapon",   type=21},  -- Enhancement Shaman buff (spell 53817)
-    {name="Wild Imps",          type=22},  -- Demonology Warlock (reads Implosion button count)
+    {name="Icicles",            type=23},  -- Frost Mage stacking buff (spell 205473)
+    {name="Tip of the Spear",  type=24},  -- Survival Hunter stacking buff (spell 260286)
+    {name="Renewing Mist",     type=25},  -- Mistweaver Monk: active RM count (spell 119611)
 }
 
 local function PowerTypeName(pt)
@@ -199,13 +201,18 @@ local function OpenPowerDrop(anchorBtn, unit, onSelect)
     powerDropPopup:Show()
 end
 
+-- Power types that support threshold sounds
+-- 20=Stagger (% of max health), 21=Maelstrom Weapon, 23=Icicles, 24=Tip of the Spear
+local THRESHOLD_POWER_TYPES = { [20]=true, [21]=true, [23]=true, [24]=true }
+local THRESHOLD_MAX  = { [21]=10, [23]=5, [24]=3 }  -- max stacks; Stagger uses % so no entry
+
 -- ── Per-bar row factory ───────────────────────────────────────────────────────
--- Layout: each row is 175px tall, with 4 explicit sub-rows at fixed Y offsets.
+-- Layout: each row is 175px tall with sub-rows:
 --   Sub-row 1 (y=  0): [✓] Bar N: [Power▼]  ○Bar ○Pips
 --   Sub-row 2 (y=-30): Unit: [Player▼]  W:[___] H:[___]  Pips:[_] PipSz:[_]  Fill:■ BG:■
---   Sub-row 3 (y=-58): Label:[__________]  ✓Show label  ✓Show value
---   Sub-row 3 (y=-66): ✓Show label  [label text]  ✓Show value  Fill: [swatch]  Bg: [swatch]
-local ROW_H  = 140
+--   Sub-row 3 (y=-62): Label:[__________]  ✓Show label  ✓Show value  Pip shape:[▼]
+--   Sub-row 4 (y=-90): [✓] Sound at [_] stacks: [Sound▼]   (hidden unless stack-type power)
+local ROW_H  = 200
 local ROW_Y0 = -70   -- y of first row's sub-row 1 relative to contentFrame TOPLEFT
 
 -- Base unit token list. Names are resolved dynamically at open-time using UnitName().
@@ -469,17 +476,80 @@ local function CreateBarRow(i)
         end)
     end)
 
+    -- ── Sub-row 4: Threshold sound (only for stack-based power types) ────────
+    local y4 = y1 - 92
+
+    local threshCb = CreateFrame("CheckButton","CSBar"..i.."ThreshEnable",contentFrame,"UICheckButtonTemplate")
+    threshCb:SetSize(18,18); threshCb:SetPoint("TOPLEFT",0,y4)
+
+    local threshLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    threshLbl:SetPoint("LEFT",threshCb,"RIGHT",2,0); threshLbl:SetText("Sound at")
+
+    local threshEdit = CreateFrame("EditBox","CSBar"..i.."ThreshVal",contentFrame,"InputBoxTemplate")
+    threshEdit:SetSize(28,18); threshEdit:SetAutoFocus(false); threshEdit:SetMaxLetters(2)
+    threshEdit:SetPoint("LEFT",threshLbl,"RIGHT",4,0); threshEdit:SetText("5")
+
+    local threshStackLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    threshStackLbl:SetPoint("LEFT",threshEdit,"RIGHT",4,0); threshStackLbl:SetText("stacks:")
+
+    -- Sound selector (reuses the same widget as buff alerts / whisper)
+    local threshSoundDrop = API.CreateSoundSelectorButton and
+        API.CreateSoundSelectorButton(contentFrame, "CSBar"..i.."ThreshSound") or nil
+
+    if threshSoundDrop then
+        threshSoundDrop:SetSize(160, 20)
+        threshSoundDrop:SetPoint("LEFT", threshStackLbl, "RIGHT", 6, 0)
+    end
+
+    -- Helper: show/hide the threshold row based on whether the selected power type supports it
+    local threshWidgets = {threshCb, threshLbl, threshEdit, threshStackLbl, threshSoundDrop}
+
+    -- High-stagger color swatch (reuses threshValue % as the trigger point)
+    local staggerHighColLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    local staggerHighSwatch = CreateColourSwatch(contentFrame,"CSBar"..i.."StaggerHighCol",1,0.3,0,nil)
+    if threshSoundDrop then
+        staggerHighColLbl:SetPoint("LEFT", threshSoundDrop, "RIGHT", 10, 0)
+    else
+        staggerHighColLbl:SetPoint("LEFT", threshStackLbl, "RIGHT", 10, 0)
+    end
+    staggerHighColLbl:SetText("High color:")
+    staggerHighSwatch:SetPoint("LEFT", staggerHighColLbl, "RIGHT", 4, 0)
+    staggerHighColLbl:Hide(); staggerHighSwatch:Hide()
+
+    local function UpdateThreshVisibility(pt)
+        local show = THRESHOLD_POWER_TYPES[pt] == true
+        if pt == 20 then  -- Stagger: percent-based
+            threshStackLbl:SetText("% of max HP:")
+            threshEdit:SetText(threshEdit:GetText() == "5" and "20" or threshEdit:GetText())
+            staggerHighColLbl:Show(); staggerHighSwatch:Show()
+        else
+            if THRESHOLD_MAX[pt] then
+                threshStackLbl:SetText("/ "..THRESHOLD_MAX[pt].." stacks:")
+            else
+                threshStackLbl:SetText("stacks:")
+            end
+            staggerHighColLbl:Hide(); staggerHighSwatch:Hide()
+        end
+        for _, w in ipairs(threshWidgets) do
+            if w then if show then w:Show() else w:Hide() end end
+        end
+    end
+    -- Start hidden until a power type is chosen
+    UpdateThreshVisibility(nil)
+
     -- ── Dropdown wire-ups ─────────────────────────────────────────────────────
     powerBtn:SetScript("OnClick",function(self)
         local currentUnit = unitBtn.unit or "player"
         OpenPowerDrop(self, currentUnit, function(pt,ptName)
             self.powerType=pt; self:SetText(ptName)
+            UpdateThreshVisibility(pt)
         end)
     end)
     unitBtn:SetScript("OnClick",function(self)
         OpenUnitDrop(self,function(unit, displayName)
             self.unit=unit; self:SetText(displayName)
             powerBtn.powerType=nil; powerBtn:SetText("(select power)")
+            UpdateThreshVisibility(nil)
         end)
     end)
 
@@ -490,11 +560,14 @@ local function CreateBarRow(i)
         pipCountEdit=pipCountEdit, pipSizeEdit=pipSizeEdit,
         pipShapeBtn=pipShapeBtn,
         fillSwatch=fillSwatch, bgSwatch=bgSwatch,
+        staggerHighSwatch=staggerHighSwatch,
         labelEdit=labelEdit, showLabelCb=showLabelCb, showValueCb=showValueCb,
+        threshCb=threshCb, threshEdit=threshEdit, threshSoundDrop=threshSoundDrop,
+        updateThreshVisibility=UpdateThreshVisibility,
         _sep=sep,
         _fontStrings={barLbl, barRadioLbl, pipRadioLbl, unitLbl,
                       wLbl, hLbl, pipCntLbl, pipSzLbl, fillColLbl, bgColLbl, labelLbl,
-                      pipShapeLbl, slLbl, svLbl},
+                      pipShapeLbl, slLbl, svLbl, threshLbl, threshStackLbl},
     }
 end
 
@@ -523,6 +596,7 @@ local function SetRowVisible(i, visible)
         w.enableCb, w.powerBtn, w.unitBtn, w.barRadio, w.pipRadio,
         w.wEdit, w.hEdit, w.pipCountEdit, w.pipSizeEdit, w.pipShapeBtn,
         w.fillSwatch, w.bgSwatch, w.labelEdit, w.showLabelCb, w.showValueCb,
+        w.threshCb, w.threshEdit, w.threshSoundDrop,
     }
     for _, f in ipairs(frames) do
         if f then
@@ -658,7 +732,20 @@ local function RefreshResourceBarUI()
                 w.bgSwatch.r=cfg.bgR or 0.1; w.bgSwatch.g=cfg.bgG or 0.1; w.bgSwatch.b=cfg.bgB or 0.1
                 w.bgSwatch.tex:SetColorTexture(w.bgSwatch.r,w.bgSwatch.g,w.bgSwatch.b,1)
             end
-            -- (colours restored above)
+            if w.staggerHighSwatch then
+                w.staggerHighSwatch.r=cfg.staggerHighR or 1
+                w.staggerHighSwatch.g=cfg.staggerHighG or 0.3
+                w.staggerHighSwatch.b=cfg.staggerHighB or 0
+                w.staggerHighSwatch.tex:SetColorTexture(w.staggerHighSwatch.r,w.staggerHighSwatch.g,w.staggerHighSwatch.b,1)
+            end
+            -- Threshold sound
+            local pt = cfg.powerType or 0
+            if w.updateThreshVisibility then w.updateThreshVisibility(pt) end
+            if w.threshCb then w.threshCb:SetChecked(cfg.threshEnabled or false) end
+            if w.threshEdit then w.threshEdit:SetText(tostring(cfg.threshValue or 5)) end
+            if w.threshSoundDrop and cfg.threshSound then
+                w.threshSoundDrop:SetSelectedSound(cfg.threshSound, cfg.threshSoundIsID)
+            end
         elseif w and not cfg then
             w.enableCb:SetChecked(false)
             w.powerBtn:SetText("(none)"); w.powerBtn.powerType=nil
@@ -728,6 +815,18 @@ local function HarvestResourceBarUI()
             cfg.showValue = w.showValueCb:GetChecked()
             if w.fillSwatch then cfg.r=w.fillSwatch.r; cfg.g=w.fillSwatch.g; cfg.b=w.fillSwatch.b end
             if w.bgSwatch   then cfg.bgR=w.bgSwatch.r; cfg.bgG=w.bgSwatch.g; cfg.bgB=w.bgSwatch.b end
+            if w.staggerHighSwatch then
+                cfg.staggerHighR=w.staggerHighSwatch.r
+                cfg.staggerHighG=w.staggerHighSwatch.g
+                cfg.staggerHighB=w.staggerHighSwatch.b
+            end
+            -- Threshold sound (only meaningful for stack-based power types)
+            if w.threshCb then cfg.threshEnabled = w.threshCb:GetChecked() end
+            if w.threshEdit then cfg.threshValue = tonumber(w.threshEdit:GetText()) or 5 end
+            if w.threshSoundDrop then
+                cfg.threshSound    = w.threshSoundDrop.selectedSound
+                cfg.threshSoundIsID = w.threshSoundDrop.selectedSoundIsID
+            end
         end
     end
     if API.RebuildLiveBars then API.RebuildLiveBars() end
@@ -746,8 +845,6 @@ local function HarvestResourceBarUI()
                     elseif pt == 21 then  -- MAELSTROM_WEAPON buff
                         local aura = C_UnitAuras.GetPlayerAuraBySpellID(53817)
                         API.valueCache[key] = { cur = aura and aura.applications or 0, max = 10 }
-                    elseif pt == 22 then  -- WILD_IMPS
-                        API.valueCache[key] = { cur = 0, max = 6 }  -- refreshed by OnUpdate
                     else
                         API.valueCache[key] = { cur = UnitPower(unit, pt) or 0, max = UnitPowerMax(unit, pt) or 1 }
                     end

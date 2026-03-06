@@ -185,7 +185,12 @@ hooksecurefunc("FCF_Tab_OnClick", function(self)
         if unreadWhispers and #unreadWhispers > 0 then
             local removed = false
             for i=#unreadWhispers,1,-1 do
-                if API.NormalizeName(unreadWhispers[i]) == API.NormalizeName(targetName) then
+                -- chatTarget is a taint-protected string in some contexts;
+                -- pcall prevents the "secret string value" error from surfacing.
+                local ok, match = pcall(function()
+                    return API.NormalizeName(unreadWhispers[i]) == API.NormalizeName(targetName)
+                end)
+                if ok and match then
                     table.remove(unreadWhispers,i); removed=true
                 end
             end
@@ -301,9 +306,10 @@ whisperEvents:SetScript("OnEvent", function(self, event, ...)
         if not ignoreOutgoingWhispers and (whisperEnabled or #whisperList>0) and receiver~="" then
             local customSound
             for _,person in ipairs(whisperList) do
-                if person.name and API.NormalizeName(person.name)==API.NormalizeName(receiver) then
-                    customSound=person.sound; break
-                end
+                local okCmp, match = pcall(function()
+                    return person.name and API.NormalizeName(person.name)==API.NormalizeName(receiver)
+                end)
+                if okCmp and match then customSound=person.sound; break end
             end
             if customSound then API.PlayCustomSound(customSound, false)
             elseif whisperEnabled and generalSoundDropdown.selectedSound then

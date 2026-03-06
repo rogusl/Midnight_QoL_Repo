@@ -458,10 +458,11 @@ local function CreateSpellSelectorButton(parent, name, auraType, idInputRef)
         -- GetAvailableSpells is provided by BuffAlerts sub-addon and stored on API
         spellPickerPanel.allSpells = API.GetAvailableSpells and API.GetAvailableSpells(self.auraType) or {}
         OpenSpellPicker(self, function(spell)
-            if spell.id == nil then btn:SetText("Custom"); return end
+            if spell.id == nil then btn:SetText("Custom"); btn.selectedSpellIsLust = nil; return end
             btn:SetText(spell.name)
-            btn.selectedSpell    = spell.id
-            btn.selectedSpellIds = spell.ids
+            btn.selectedSpell      = spell.id
+            btn.selectedSpellIds   = spell.ids
+            btn.selectedSpellIsLust = spell.isLustTracker or nil
             if btn.idInputRef then
                 if spell.ids then btn.idInputRef:SetText(table.concat(spell.ids, ","))
                 else btn.idInputRef:SetText(tostring(spell.id)) end

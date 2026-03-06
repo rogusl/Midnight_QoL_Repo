@@ -206,8 +206,10 @@ local function RefreshAuraListUI()
         for slotIndex = #list+1, #pool do pool[slotIndex].frame:Hide() end
     end
     DrawSection(trackedBuffs,     "BUFF",     "|cFF00FF00")
+    --[[ DEBUFFS/EXTERNALS DISABLED — tracking not yet implemented
     DrawSection(trackedDebuffs,   "DEBUFF",   "|cFFFF0000")
     DrawSection(trackedExternals, "EXTERNAL", "|cFF00CCFF")
+    --]]
     contentFrame:SetHeight(math.max(200, rowCount*120))
 end
 API.RefreshAuraListUI = RefreshAuraListUI
@@ -232,6 +234,11 @@ local function HarvestUIValues()
                 else aura.spellId=tonumber(input:GetText()) or 0 end
             end
             local enableCb=_G["BuffAlertEnableCheckbox"..t..index]; if enableCb then aura.enabled=enableCb:GetChecked() end
+            -- Propagate isLustTracker from spell dropdown selection
+            local spellDropRef = _G["BuffAlertSpellDropdownBUFF"..index]
+            if spellDropRef and spellDropRef.selectedSpellIsLust ~= nil then
+                aura.isLustTracker = spellDropRef.selectedSpellIsLust
+            end
             local imgBtnRef=_G["BuffAlertImgBtn"..t..index]
             local rawImg=imgBtnRef and imgBtnRef.selectedImage
             aura.alertTexture=(rawImg and rawImg~="" and tostring(rawImg)) or nil
@@ -255,8 +262,10 @@ local function HarvestUIValues()
         end
     end
     harvestList(trackedBuffs,     "buff")
+    --[[ DEBUFFS/EXTERNALS DISABLED — tracking not yet implemented
     harvestList(trackedDebuffs,   "debuff")
     harvestList(trackedExternals, "external")
+    --]]
 end
 API.HarvestBuffAlertUIValues = HarvestUIValues
 
@@ -278,6 +287,7 @@ addBuffBtn:SetScript("OnClick",function()
     RefreshAuraListUI()
 end)
 
+--[[ DEBUFFS/EXTERNALS DISABLED — tracking not yet implemented
 local addDebuffBtn = CreateFrame("Button","MidnightQoLAddDebuffBtn",mainFrame,"GameMenuButtonTemplate")
 addDebuffBtn:SetSize(110,25); addDebuffBtn:SetText("+ Add Debuff"); addDebuffBtn:Hide()
 addDebuffBtn:SetPoint("LEFT", addBuffBtn, "RIGHT", 6, 0)
@@ -295,23 +305,29 @@ addExternalBtn:SetScript("OnClick",function()
     table.insert(trackedExternals,{spellId=0,sound=nil})
     RefreshAuraListUI()
 end)
+--]]
 
 -- ── Tab registration ───────────────────────────────────────────────────────────
 local function OnAlertsTabActivate()
-    -- Re-sync table references in case a profile reload happened
     trackedBuffs     = API.trackedBuffs
+    --[[ DEBUFFS/EXTERNALS DISABLED
     trackedDebuffs   = API.trackedDebuffs
     trackedExternals = API.trackedExternals
+    --]]
     RefreshAuraListUI()
     addBuffBtn:Show()
+    --[[ DEBUFFS/EXTERNALS DISABLED
     addDebuffBtn:Show()
     addExternalBtn:Show()
+    --]]
 end
 
 local function OnAlertsTabDeactivate()
     addBuffBtn:Hide()
+    --[[ DEBUFFS/EXTERNALS DISABLED
     addDebuffBtn:Hide()
     addExternalBtn:Hide()
+    --]]
 end
 
 API.RegisterTab("Alerts", contentFrame, OnAlertsTabActivate, 80, OnAlertsTabDeactivate, 2)

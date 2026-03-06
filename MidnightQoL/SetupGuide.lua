@@ -1,9 +1,21 @@
 SETUP_GUIDE_TEXT = [[
-|cFFFFD700Welcome to MidnightQoL!|r
+|cFFFFD700Welcome to Midnight Quality of Life!|r
 
-|cFF00CCFFAdding Custom Sounds and Images|r
-Place the folders in the appropriate folder within the |cFF00CCFF...\retail\Interface\Addons\MidnightQoL\|r folder.
+To begin setup click on the icon on the minimap or type |cFFFF4444/qol|r in the chat.
 
-then either update the lists within that same folder by hand or run the code in my github repository to update it.
-Unfortunately Curseforge wont allow the scripts to be inside the folder for security reasons.
+In order to add custom sounds and icons place them in the appropriate folders within the main addon folder (|cFF00CCFF.../interface/addons/MidnightQoL/|r). Then update the list either manually or using the script on the GitHub.
+
+I am working on adding features as I discover new needs. If you have anything that interests you please add a GitHub request.
+
+|cFFFFD700Changes:|r
+Updated the buff tracking system to be more concise.
+Added a castbar module.
+Added an XP bar module.
+Added tracking for stagger, tip of the spear, and icicles.
+Added various small QoL features to the main panel.
+
+|cFFFFD700Next up:|r
+Tracking more buffs as Blizzard whitelists them.
+Playing sounds based on status of resource bars.
+Adding more options for various features.
 ]]

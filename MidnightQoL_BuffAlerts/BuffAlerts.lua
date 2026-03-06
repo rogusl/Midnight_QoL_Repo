@@ -8,18 +8,23 @@ local API = MidnightQoLAPI
 
 -- ── State ─────────────────────────────────────────────────────────────────────
 local trackedBuffs     = {}
+--[[ DEBUFFS/EXTERNALS DISABLED — for future development
 local trackedDebuffs   = {}
 local trackedExternals = {}
+--]]
+
 local activeAlerts     = {}
 -- Alerts triggered by the buff-viewer OnShow/OnHide hook.
--- ScanAllTrackedAuras must NOT call FireAuraLost for these —
--- only OnBuffViewerFrameHide may dismiss them.
+-- Only OnBuffViewerFrameHide may dismiss these.
 local buffViewerAlerts = {}
 
 -- Expose on API so BuffAlertsUI and Layout mode can access them
 API.trackedBuffs     = trackedBuffs
+--[[ DEBUFFS/EXTERNALS DISABLED — for future development
 API.trackedDebuffs   = trackedDebuffs
 API.trackedExternals = trackedExternals
+--]]
+
 
 local buffDebuffAlertsEnabled = true
 
@@ -56,6 +61,14 @@ local function GetAvailableSpells(listType)
             end
         end
     else
+        -- Universal presets shown for all classes at the top of the buff list
+        if listType == "buff" then
+            table.insert(available, {
+                id            = 57723,
+                name          = "Lust / Sated (all variants)",
+                isLustTracker = true,
+            })
+        end
         for _, spell in ipairs(GetClassSpellList(listType)) do
             table.insert(available, {id=spell.id, name=spell.name})
         end
@@ -67,14 +80,20 @@ API.GetAvailableSpells = GetAvailableSpells
 -- ── Spec profile callbacks ─────────────────────────────────────────────────────
 local function OnSaveProfile(profile)
     profile.trackedBuffs     = trackedBuffs
+--[[ DEBUFFS/EXTERNALS DISABLED — for future development
     profile.trackedDebuffs   = trackedDebuffs
     profile.trackedExternals = trackedExternals
+--]]
+
     profile.buffDebuffAlertsEnabled = buffDebuffAlertsEnabled
     -- Keep legacy flat keys for backward compat
     if BuffAlertDB then
         BuffAlertDB.trackedBuffs     = trackedBuffs
+--[[ DEBUFFS/EXTERNALS DISABLED — for future development
         BuffAlertDB.trackedDebuffs   = trackedDebuffs
         BuffAlertDB.trackedExternals = trackedExternals
+--]]
+
         BuffAlertDB.buffDebuffAlertsEnabled = buffDebuffAlertsEnabled
     end
 end
@@ -82,12 +101,18 @@ end
 local function OnLoadProfile(profile)
     -- Wipe and repopulate the SAME table objects so all upvalue references stay valid
     for k in pairs(trackedBuffs)     do trackedBuffs[k]     = nil end
+--[[ DEBUFFS/EXTERNALS DISABLED — for future development
     for k in pairs(trackedDebuffs)   do trackedDebuffs[k]   = nil end
     for k in pairs(trackedExternals) do trackedExternals[k] = nil end
+--]]
+
 
     for _, v in ipairs(profile.trackedBuffs     or {}) do table.insert(trackedBuffs,     v) end
+--[[ DEBUFFS/EXTERNALS DISABLED — for future development
     for _, v in ipairs(profile.trackedDebuffs   or {}) do table.insert(trackedDebuffs,   v) end
     for _, v in ipairs(profile.trackedExternals or {}) do table.insert(trackedExternals, v) end
+--]]
+
 
     -- Migrate: old default alertDuration of 3 was saved before "0 = stay forever" behaviour.
     -- Clear it to 0 so buff-viewer-owned alerts stay up until the buff actually falls off.
@@ -97,10 +122,17 @@ local function OnLoadProfile(profile)
         end
     end
     stripOldDuration(trackedBuffs)
+--[[ DEBUFFS/EXTERNALS DISABLED — for future development
     stripOldDuration(trackedDebuffs)
     stripOldDuration(trackedExternals)
+--]]
 
-    buffDebuffAlertsEnabled = (profile.buffDebuffAlertsEnabled ~= false)
+
+    local savedEnabled = profile.buffDebuffAlertsEnabled
+    if savedEnabled == nil then
+        savedEnabled = BuffAlertDB and BuffAlertDB.buffDebuffAlertsEnabled
+    end
+    buffDebuffAlertsEnabled = (savedEnabled == true)
     if API.buffAlertEnabledCheckbox then
         API.buffAlertEnabledCheckbox:SetChecked(buffDebuffAlertsEnabled)
     end
@@ -373,7 +405,7 @@ local function ShowAlertOverlay(aura, spellName, sourceFrame)
 end
 
 API.ShowAlertOverlay = ShowAlertOverlay
-API.HideAlertPreviews = function()
+API._hideAlertPreviewsBase = function()
     for _, f in ipairs(alertPool) do
         if f.durationTimer then f.durationTimer:Cancel(); f.durationTimer = nil end
         f.cooldown:Clear(); f.boundToHandle = nil; f:Hide(); f.sourceFrame = nil
@@ -419,7 +451,7 @@ local function GetOrCreateGlowForAura(aura)
 end
 
 -- ── CooldownViewer hook ────────────────────────────────────────────────────────
-local HookBuffViewerPanels       -- forward declarations; defined after FireAuraLost
+local HookBuffViewerPanels       -- forward declaration
 local IsBuffViewerFrameShowing
 local cidToEntry = {}
 local sidToEntry = {}
@@ -455,7 +487,7 @@ local function OnCooldownViewerFrameShow(self)
     if entry.aura.sound then API.PlayCustomSound(entry.aura.sound, entry.aura.soundIsID) end
     local overlay = ShowAlertOverlay(entry.aura, spellName, self)
     if overlay then activeOverlays[alertKey] = overlay end
-    print(entry.color .. "[MidnightQoL]|r " .. entry.label .. ": " .. spellName)
+    if API.DEBUG then print(entry.color .. "[MidnightQoL]|r " .. entry.label .. ": " .. spellName) end
     if entry.aura.glowEnabled then
         local gf = GetOrCreateGlowForAura(entry.aura); if gf then gf:ShowGlow() end
     end
@@ -494,8 +526,7 @@ local function RebuildNameMap()
     -- cooldown bucket name). Exact ID matching only.
     -- CID deduplication: if two tracked spells share a cooldown ID (same bucket),
     -- the first registration wins and the second is skipped for CID mapping.
-    -- Both still exist in sidToEntry so RefreshExternalFrame / ScanTrackedDebuffs
-    -- can find them by spell ID directly.
+    -- Both still exist in sidToEntry (debuff/external tracking disabled for now)
     local function addByID(sid, aura, label, color, alertKey)
         if not sid or sid <= 0 then return end
         if sidToEntry[sid] then return end  -- already registered
@@ -512,15 +543,12 @@ local function RebuildNameMap()
             addByID(buff.spellId, buff, "Gained", "|cFF00FF00", buff.spellId)
         end
     end
+    --[[ DEBUFFS/EXTERNALS DISABLED — for future development
     for _, debuff in ipairs(trackedDebuffs) do
         if debuff.enabled ~= false and debuff.spellId and debuff.spellId > 0 then
             addByID(debuff.spellId, debuff, "Debuff", "|cFFFF0000", debuff.spellId)
         end
     end
-    -- Externals: multi-ID groups (e.g. all Lust variants) register each variant
-    -- as a hidden independent entry sharing the same alertKey. This means any
-    -- variant that appears on a CooldownViewer frame will map correctly regardless
-    -- of which specific spell ID the player has on their bar.
     for _, ext in ipairs(trackedExternals) do
         if ext.enabled ~= false then
             local watchIds = (ext.spellIds and #ext.spellIds > 0) and ext.spellIds or {tonumber(ext.spellId)}
@@ -532,6 +560,7 @@ local function RebuildNameMap()
             end
         end
     end
+    --]]
 
     local panelNames = {
         "EssentialCooldownViewer","UtilityCooldownViewer","BuffIconCooldownViewer",
@@ -634,7 +663,7 @@ local function OnBuffViewerFrameShow(self)
         activeOverlays[alertKey] = overlay
         if overlay.durationTimer then overlay.durationTimer:Cancel(); overlay.durationTimer = nil end
     end
-    print("|cFF00FF00[MidnightQoL]|r Gained: " .. spellName .. " (id=" .. tostring(sid) .. ")")
+    if API.DEBUG then print("|cFF00FF00[MidnightQoL]|r Gained: " .. spellName) end
     if entry.glowEnabled then
         local gf = GetOrCreateGlowForAura(entry); if gf then gf:ShowGlow() end
     end
@@ -732,20 +761,26 @@ HookBuffViewerPanels = function()
     end
 end
 API.HookBuffViewerPanels = HookBuffViewerPanels
--- DESIGN:
---   Buffs    → tracked ONLY via CooldownViewer frame hooks (OnCooldownViewerFrameShow/Hide
---              and the buff-viewer panel poll). No C_UnitAuras scanning for buffs.
---   Debuffs  → whitelist-only: only spellIDs explicitly added to trackedDebuffs fire
---              alerts. Tracked via UNIT_AURA OOC scan + in-combat frame poll.
---   Externals→ dedicated persistent bar frame that polls C_UnitAuras every 0.2s,
---              safe because externals are tracked on the player unit and the frame
---              updates every tick including in combat via a scheduled ticker.
+-- ── Buff lookup (CooldownViewer path only) ───────────────────────────────────
+-- Buffs are tracked EXCLUSIVELY via CooldownViewer frame OnShow/OnHide hooks
+-- and the PollBuffFrames in-combat ticker. No C_UnitAuras scanning for buffs.
 
--- instanceID → spellId map so we can match removals back to a spell (debuffs only)
+local function FindTrackedEntry(sid)
+    for _, aura in ipairs(trackedBuffs) do
+        if aura.enabled ~= false and tonumber(aura.spellId) == sid then
+            return aura, "Gained", "|cFF00FF00"
+        end
+    end
+    return nil
+end
+
+--[[ FUTURE: Debuff tracking via UNIT_AURA + instanceID removal
+-- Debuffs are whitelist-only: only spellIDs explicitly in trackedDebuffs fire alerts.
+
+-- instanceID → spellId map so we can match removals back to a spell
 local activeInstanceToSpell = {}
 
 local function FindTrackedDebuff(sid)
-    -- Debuffs are whitelist-only: only fire if explicitly in trackedDebuffs
     for _, aura in ipairs(trackedDebuffs) do
         if aura.enabled ~= false and tonumber(aura.spellId) == sid then
             return aura, "Debuff", "|cFFFF0000"
@@ -754,44 +789,6 @@ local function FindTrackedDebuff(sid)
     return nil
 end
 
-local function FindTrackedExternal(sid)
-    for _, aura in ipairs(trackedExternals) do
-        if aura.enabled ~= false then
-            local wids = (aura.spellIds and #aura.spellIds > 0) and aura.spellIds or {tonumber(aura.spellId)}
-            for _, wid in ipairs(wids) do
-                if wid == sid then return aura, "External", "|cFF00CCFF" end
-            end
-        end
-    end
-    return nil
-end
-
--- Legacy combined lookup used by cooldown-viewer path (buffs only from CD manager)
-local function FindTrackedEntry(sid)
-    -- Buffs: looked up only from cooldown-viewer hook path (not from aura scan)
-    for _, aura in ipairs(trackedBuffs) do
-        if aura.enabled ~= false and tonumber(aura.spellId) == sid then
-            return aura, "Gained", "|cFF00FF00"
-        end
-    end
-    local entry, label, color = FindTrackedDebuff(sid)
-    if entry then return entry, label, color end
-    return FindTrackedExternal(sid)
-end
-
--- ── Debuff scan (OOC only, whitelist-only) ────────────────────────────────────
--- Buffs are intentionally NOT scanned here — they fire only via the CooldownViewer
--- frame hooks above. This avoids false-positives from C_UnitAuras in combat.
--- Buffs are tracked exclusively via buff-viewer frame OnShow/OnHide hooks.
--- C_UnitAuras.GetPlayerAuraBySpellID is NOT used for buffs — it returns nil
--- intermittently during absorb/stack updates (e.g. Celestial Infusion) causing
--- spurious gain/loss flicker. Frame visibility is the reliable ground truth.
--- ScanTrackedBuffs is a no-op stub kept so call sites compile without error.
-local buffLossDebounce = {}  -- kept for PLAYER_REGEN_ENABLED cleanup loop
-local function ScanTrackedBuffs() end
-
--- Build the instanceID→spellID map without firing any alerts.
--- Called on login and after combat to prime the removal tracking map.
 local function BuildInstanceMap()
     if InCombatLockdown() then return end
     for _, aura in ipairs(trackedDebuffs) do
@@ -818,9 +815,7 @@ local function ScanTrackedDebuffs()
                     if auraData.auraInstanceID then
                         activeInstanceToSpell[auraData.auraInstanceID] = sid
                     end
-                    if not activeAlerts[sid] then
-                        FireAuraGained(sid)
-                    end
+                    if not activeAlerts[sid] then FireAuraGained(sid) end
                 else
                     FireAuraLost(sid)
                 end
@@ -829,86 +824,53 @@ local function ScanTrackedDebuffs()
     end
 end
 
--- ── External Defensive Frame ──────────────────────────────────────────────────
--- A dedicated persistent HUD frame that tracks externals (buffs cast on the player
--- by others). It polls C_UnitAuras every 0.2s via a ticker that runs in AND out of
--- combat so the frame stays accurate throughout a fight.
--- The frame shows all currently-active tracked externals as a stacked list of bars.
-
-local extFrame = CreateFrame("Frame", "MidnightQoLExternalFrame", UIParent)
-extFrame:SetFrameStrata("HIGH")
-extFrame:SetFrameLevel(50)
-extFrame:SetSize(200, 10)  -- height grows with active externals
-extFrame:SetPoint("CENTER", UIParent, "CENTER", 200, 100)
-extFrame:SetMovable(true); extFrame:EnableMouse(true); extFrame:RegisterForDrag("LeftButton")
-extFrame:SetScript("OnDragStart", function(self) if API.IsLayoutMode and API.IsLayoutMode() then self:StartMoving() end end)
-extFrame:SetScript("OnDragStop", function(self)
-    self:StopMovingOrSizing()
-    if BuffAlertDB then
-        local cx, cy = UIParent:GetWidth()/2, UIParent:GetHeight()/2
-        BuffAlertDB.extFrameX = math.floor(self:GetLeft() + self:GetWidth()/2 - cx + 0.5)
-        BuffAlertDB.extFrameY = math.floor(self:GetBottom() + self:GetHeight()/2 - cy + 0.5)
+local function FireAuraGained(sid)
+    if not buffDebuffAlertsEnabled then return end
+    local entry, label, color = FindTrackedDebuff(sid)
+    if not entry then return end
+    local alertKey = sid
+    if activeAlerts[alertKey] then return end
+    activeAlerts[alertKey] = true
+    local spellName = ""
+    local ok, sinfo = pcall(C_Spell.GetSpellInfo, sid)
+    if ok and sinfo then spellName = sinfo.name or "" end
+    if entry.sound then API.PlayCustomSound(entry.sound, entry.soundIsID) end
+    local overlay = ShowAlertOverlay(entry, spellName, nil)
+    if overlay then activeOverlays[alertKey] = overlay end
+    if API.DEBUG then print(color .. "[MidnightQoL]|r " .. label .. ": " .. spellName) end
+    if entry.glowEnabled then
+        local gf = GetOrCreateGlowForAura(entry); if gf then gf:ShowGlow() end
     end
-end)
-extFrame:Hide()
-
--- Pool of bar rows for the external frame
-local EXT_BAR_HEIGHT = 24
-local EXT_BAR_GAP    = 2
-local EXT_BAR_WIDTH  = 200
-local extBarPool     = {}
-
-local function GetExtBar(idx)
-    if extBarPool[idx] then return extBarPool[idx] end
-    local f = CreateFrame("Frame", nil, extFrame)
-    f:SetSize(EXT_BAR_WIDTH, EXT_BAR_HEIGHT)
-
-    local bgTex = f:CreateTexture(nil, "BACKGROUND")
-    bgTex:SetAllPoints(f); bgTex:SetColorTexture(0.05, 0.05, 0.05, 0.85); f.bg = bgTex
-
-    local fillBar = CreateFrame("StatusBar", nil, f)
-    fillBar:SetPoint("TOPLEFT", f, "TOPLEFT", 1, -1)
-    fillBar:SetPoint("BOTTOMRIGHT", f, "BOTTOMRIGHT", -1, 1)
-    local fillTex = fillBar:CreateTexture(nil, "ARTWORK")
-    fillTex:SetColorTexture(1, 1, 1, 1)
-    fillBar:SetStatusBarTexture(fillTex)
-    fillBar:SetMinMaxValues(0, 1); fillBar:SetValue(1)
-    fillBar:SetStatusBarColor(0.2, 0.6, 1, 0.85)
-    f.fill = fillBar
-
-    local iconTex = f:CreateTexture(nil, "ARTWORK", nil, 1)
-    iconTex:SetSize(EXT_BAR_HEIGHT - 2, EXT_BAR_HEIGHT - 2)
-    iconTex:SetPoint("LEFT", f, "LEFT", 1, 0)
-    iconTex:SetTexCoord(0.08, 0.92, 0.08, 0.92); f.icon = iconTex
-
-    local nameStr = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    nameStr:SetPoint("LEFT", f, "LEFT", EXT_BAR_HEIGHT + 4, 0)
-    nameStr:SetPoint("RIGHT", f, "RIGHT", -28, 0)
-    nameStr:SetJustifyH("LEFT")
-    nameStr:SetFont(nameStr:GetFont(), 10, "OUTLINE")
-    nameStr:SetTextColor(1, 1, 1, 1); f.nameStr = nameStr
-
-    local timerStr = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-    timerStr:SetPoint("RIGHT", f, "RIGHT", -4, 0)
-    timerStr:SetJustifyH("RIGHT")
-    timerStr:SetFont(timerStr:GetFont(), 10, "OUTLINE")
-    timerStr:SetTextColor(0.9, 0.9, 0.9, 0.9); f.timerStr = timerStr
-
-    extBarPool[idx] = f
-    return f
 end
 
--- activeExternals: { [sid] = { expirationTime, duration, name, iconID } }
-local activeExternals = {}
+local function FireAuraLost(sid)
+    local alertKey = sid
+    if not activeAlerts[alertKey] then return end
+    activeAlerts[alertKey] = nil
+    buffViewerAlerts[alertKey] = nil
+    ReleaseOverlay(alertKey)
+    local gf = spellGlowFrames[alertKey]; if gf then gf:HideGlow() end
+end
+--]]
+
+--[[ FUTURE: External defensive tracking via C_UnitAuras
+-- A persistent HUD frame that tracks externals (buffs cast on the player by others).
+-- Polls C_UnitAuras every 0.2s via a ticker that runs in and out of combat.
+
+local function FindTrackedExternal(sid)
+    for _, aura in ipairs(trackedExternals) do
+        if aura.enabled ~= false then
+            local wids = (aura.spellIds and #aura.spellIds > 0) and aura.spellIds or {tonumber(aura.spellId)}
+            for _, wid in ipairs(wids) do
+                if wid == sid then return aura, "External", "|cFF00CCFF" end
+            end
+        end
+    end
+    return nil
+end
 
 local function RefreshExternalFrame()
-    -- Externals are tracked on the player unit via C_UnitAuras.
-    -- In TWW, C_UnitAuras.GetPlayerAuraBySpellID is safe to call in combat for
-    -- player buffs that originated from other players (externals). We still guard
-    -- with pcall so any unexpected taint doesn't crash the ticker.
     local now = GetTime()
-    local newActives = {}
-
     for _, aura in ipairs(trackedExternals) do
         if aura.enabled ~= false then
             local wids = (aura.spellIds and #aura.spellIds > 0) and aura.spellIds or {tonumber(aura.spellId)}
@@ -917,33 +879,18 @@ local function RefreshExternalFrame()
                     local ok, auraData = pcall(C_UnitAuras.GetPlayerAuraBySpellID, sid)
                     if ok and auraData and auraData.expirationTime then
                         local remaining = auraData.expirationTime == 0 and math.huge or (auraData.expirationTime - now)
-                        if remaining > 0 then
-                            local dispName = aura.name or ""
-                            if dispName == "" then
-                                local nok, ninfo = pcall(C_Spell.GetSpellInfo, sid)
-                                if nok and ninfo then dispName = ninfo.name or ("ID "..sid) end
-                            end
-                            local iconID
-                            local iok, iinfo = pcall(C_Spell.GetSpellInfo, sid)
-                            if iok and iinfo then iconID = iinfo.iconID end
-                            newActives[sid] = {
-                                expirationTime = auraData.expirationTime,
-                                duration       = auraData.duration or 0,
-                                name           = dispName,
-                                iconID         = iconID,
-                            }
-                            -- Fire sound alert only on first appearance
-                            if not activeAlerts[sid] then
-                                activeAlerts[sid] = true
-                                if aura.sound then API.PlayCustomSound(aura.sound, aura.soundIsID) end
+                        if remaining > 0 and not activeAlerts[sid] then
+                            activeAlerts[sid] = true
+                            if aura.sound then API.PlayCustomSound(aura.sound, aura.soundIsID) end
+                            if API.DEBUG then
+                                local dispName = aura.name or ("ID " .. sid)
                                 print("|cFF00CCFF[MidnightQoL]|r External: " .. dispName)
-                                if aura.glowEnabled then
-                                    local gf = GetOrCreateGlowForAura(aura); if gf then gf:ShowGlow() end
-                                end
+                            end
+                            if aura.glowEnabled then
+                                local gf = GetOrCreateGlowForAura(aura); if gf then gf:ShowGlow() end
                             end
                         end
                     else
-                        -- Not active — clear alert
                         if activeAlerts[sid] then
                             activeAlerts[sid] = nil
                             local gf = spellGlowFrames[sid]; if gf then gf:HideGlow() end
@@ -953,148 +900,18 @@ local function RefreshExternalFrame()
             end
         end
     end
-    activeExternals = newActives
-
-    -- Rebuild visible rows
-    local sorted = {}
-    for sid, data in pairs(activeExternals) do
-        table.insert(sorted, { sid = sid, data = data })
-    end
-    table.sort(sorted, function(a, b)
-        local ra = a.data.expirationTime == 0 and math.huge or (a.data.expirationTime - now)
-        local rb = b.data.expirationTime == 0 and math.huge or (b.data.expirationTime - now)
-        return ra > rb
-    end)
-
-    local count = #sorted
-    if count == 0 then
-        extFrame:Hide(); return
-    end
-
-    local db = BuffAlertDB
-    local frameW = (db and db.extFrameWidth) or EXT_BAR_WIDTH
-    local barH   = (db and db.extFrameBarHeight) or EXT_BAR_HEIGHT
-    extFrame:SetSize(frameW, count * (barH + EXT_BAR_GAP) - EXT_BAR_GAP)
-    extFrame:Show()
-
-    for i, entry in ipairs(sorted) do
-        local bar = GetExtBar(i)
-        local d   = entry.data
-        bar:SetSize(frameW, barH)
-        bar:ClearAllPoints()
-        bar:SetPoint("TOPLEFT", extFrame, "TOPLEFT", 0, -(i - 1) * (barH + EXT_BAR_GAP))
-
-        if d.iconID then bar.icon:SetTexture(d.iconID) else bar.icon:SetTexture("Interface\\Icons\\INV_Misc_QuestionMark") end
-        bar.nameStr:SetText(d.name)
-
-        local remaining
-        if d.expirationTime == 0 then
-            bar.fill:SetValue(1)
-            bar.timerStr:SetText("∞")
-        else
-            remaining = math.max(0, d.expirationTime - now)
-            local total = d.duration > 0 and d.duration or remaining
-            bar.fill:SetMinMaxValues(0, total)
-            bar.fill:SetValue(remaining)
-            if remaining >= 60 then
-                bar.timerStr:SetText(string.format("%dm", math.floor(remaining / 60)))
-            else
-                bar.timerStr:SetText(string.format("%.1fs", remaining))
-            end
-        end
-
-        if remaining then
-            local frac = d.duration > 0 and (remaining / d.duration) or 1
-            frac = math.max(0, math.min(1, frac))
-            bar.fill:SetStatusBarColor(1 - frac, frac * 0.8, 0.1, 0.85)
-        else
-            bar.fill:SetStatusBarColor(0.2, 0.8, 0.4, 0.85)
-        end
-
-        bar:Show()
-    end
-
-    for i = count + 1, #extBarPool do extBarPool[i]:Hide() end
 end
+--]]
 
--- Ticker: runs every 0.2s in AND out of combat so the frame stays live
-local extTicker = nil
-local function StartExternalTicker()
-    if extTicker then return end
-    extTicker = C_Timer.NewTicker(0.2, RefreshExternalFrame)
-end
+local buffLossDebounce = {}  -- kept for PLAYER_REGEN_ENABLED cleanup loop
 
--- Apply saved position to external frame
-local function ApplyExtFramePosition()
-    if not BuffAlertDB then return end
-    local x = BuffAlertDB.extFrameX or 200
-    local y = BuffAlertDB.extFrameY or 100
-    extFrame:ClearAllPoints()
-    extFrame:SetPoint("CENTER", UIParent, "CENTER", x, y)
-end
-API.ApplyExtFramePosition = ApplyExtFramePosition
-
--- Expose for Layout mode
-API.extFrame = extFrame
-
--- Register with Edit Layout
-API.RegisterLayoutHandles(function()
-    if not (BuffAlertDB and BuffAlertDB.extFrameEnabled ~= false) then return {} end
-    local ox = (BuffAlertDB and BuffAlertDB.extFrameX) or 200
-    local oy = (BuffAlertDB and BuffAlertDB.extFrameY) or 100
-    return {{
-        label        = "External Defensives",
-        iconTex      = "Interface\\Icons\\Spell_Holy_GreaterBlessingofSalvation",
-        ox           = ox, oy = oy,
-        liveFrameRef = extFrame,
-        saveCallback = function(nx, ny)
-            if BuffAlertDB then BuffAlertDB.extFrameX = nx; BuffAlertDB.extFrameY = ny end
-            extFrame:ClearAllPoints()
-            extFrame:SetPoint("CENTER", UIParent, "CENTER", nx, ny)
-        end,
-        resizeCallback = function(nw, nh)
-            nw = math.max(120, math.floor(nw + 0.5))
-            if BuffAlertDB then BuffAlertDB.extFrameWidth = nw end
-            EXT_BAR_WIDTH = nw
-        end,
-    }}
-end)
-
--- ── In-combat debuff instance removal tracking ────────────────────────────────
--- Debuffs removed in combat: use instanceID map (built OOC) for safe removals.
-
-local function FireAuraGained(sid)
-    if not buffDebuffAlertsEnabled then return end
-    local entry, label, color = FindTrackedDebuff(sid)
-    if not entry then return end
-    local alertKey = sid
-    if activeAlerts[alertKey] then return end
-    activeAlerts[alertKey] = true
-    -- Debuff alerts are never buff-viewer owned — don't set buffViewerAlerts
-    local spellName = ""
-    local ok, sinfo = pcall(C_Spell.GetSpellInfo, sid)
-    if ok and sinfo then spellName = sinfo.name or "" end
-    if entry.sound then API.PlayCustomSound(entry.sound, entry.soundIsID) end
-    local overlay = ShowAlertOverlay(entry, spellName, nil)
-    if overlay then activeOverlays[alertKey] = overlay end
-    print(color .. "[MidnightQoL]|r " .. label .. ": " .. spellName)
-    if entry.glowEnabled then
-        local gf = GetOrCreateGlowForAura(entry); if gf then gf:ShowGlow() end
-    end
-end
-
-local function FireAuraLost(sid)
-    local alertKey = sid
-    if not activeAlerts[alertKey] then return end
-    -- buffViewerAlerts guard only applies to buff-viewer buffs, not debuffs.
-    -- Debuffs come exclusively through ScanTrackedDebuffs / instanceID removal
-    -- and must always be dismissible.
-    if buffViewerAlerts[alertKey] and not FindTrackedDebuff(sid) then return end
-    activeAlerts[alertKey] = nil
-    buffViewerAlerts[alertKey] = nil
-    ReleaseOverlay(alertKey)
-    local gf = spellGlowFrames[alertKey]; if gf then gf:HideGlow() end
-end
+-- Stubs so call sites outside the block comments compile without error
+local function BuildInstanceMap() end
+local function ScanTrackedDebuffs() end
+local function FireAuraGained(sid) end
+local function FireAuraLost(sid) end
+local function StartExternalTicker() end
+local function ApplyExtFramePosition() end
 
 -- ── In-combat buff visibility poller ─────────────────────────────────────────
 -- Polls hooked buff-viewer frames every 0.1s in combat.
@@ -1150,7 +967,7 @@ local function PollBuffFrames()
                                 activeOverlays[sid] = overlay
                                 if overlay.durationTimer then overlay.durationTimer:Cancel(); overlay.durationTimer = nil end
                             end
-                            print("|cFF00FF00[MidnightQoL]|r Gained: " .. spellName .. " (id=" .. tostring(sid) .. ")")
+                            if API.DEBUG then print("|cFF00FF00[MidnightQoL]|r Gained: " .. spellName) end
                             if entry.glowEnabled then
                                 local gf = GetOrCreateGlowForAura(entry); if gf then gf:ShowGlow() end
                             end
@@ -1224,32 +1041,64 @@ buffEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
 buffEvents:RegisterEvent("PLAYER_LOGIN")
 buffEvents:RegisterEvent("UNIT_AURA")
 
-buffEvents:SetScript("OnEvent", function(self, event, unit, updateInfo)
-    if event == "UNIT_AURA" and unit == "player" then
-        -- Buffs: tracked via buff-viewer frame hooks + PollBuffFrames, NOT C_UnitAuras.
-        -- C_UnitAuras returns nil intermittently for absorb-type buffs (Celestial Infusion)
-        -- causing spurious gain/loss flicker. Frame visibility is the reliable source.
-        -- Debuffs: scan OOC; use instanceID removal in combat.
-        if not InCombatLockdown() then
-            ScanTrackedDebuffs()
-            return
+-- Sated debuff IDs that signal lust was used. These are non-secret (debuffs, not buffs).
+-- A buff entry with isLustTracker=true uses this table instead of a buff-viewer hook.
+local SATED_DEBUFF_IDS = {
+    [57723]=true, [57724]=true, [80354]=true,
+    [95809]=true, [160455]=true, [264689]=true, [390435]=true,
+}
+local LUST_ALERT_KEY = 57723  -- canonical alert key for all sated variants
+local lustDebuffActive = false
+
+local function CheckLustDebuff()
+    if not buffDebuffAlertsEnabled then return end
+    -- Find a lust entry in trackedBuffs
+    local lustEntry = nil
+    for _, aura in ipairs(trackedBuffs) do
+        if aura.isLustTracker and aura.enabled ~= false then
+            lustEntry = aura; break
         end
-        if updateInfo and not updateInfo.isFullUpdate then
-            if updateInfo.removedAuraInstanceIDs then
-                for _, iid in ipairs(updateInfo.removedAuraInstanceIDs) do
-                    for storedIid, sid in pairs(activeInstanceToSpell) do
-                        if storedIid == iid then
-                            activeInstanceToSpell[storedIid] = nil
-                            FireAuraLost(sid)
-                            break
-                        end
-                    end
-                end
-            end
-        end
-        return
+    end
+    if not lustEntry then return end
+
+    -- Scan debuffs (non-secret UnitDebuff)
+    local foundSID = nil
+    local i = 1
+    while true do
+        local _, _, _, _, _, _, _, _, _, spellId = UnitDebuff("player", i)
+        if not spellId then break end
+        if SATED_DEBUFF_IDS[spellId] then foundSID = spellId; break end
+        i = i + 1
     end
 
+    if foundSID and not lustDebuffActive then
+        lustDebuffActive = true
+        activeAlerts[LUST_ALERT_KEY] = true
+        local ok, sinfo = pcall(C_Spell.GetSpellInfo, foundSID)
+        local spellName = (ok and sinfo and sinfo.name) or "Lust"
+        if lustEntry.sound then API.PlayCustomSound(lustEntry.sound, lustEntry.soundIsID) end
+        local overlay = ShowAlertOverlay(lustEntry, spellName, nil)
+        if overlay then activeOverlays[LUST_ALERT_KEY] = overlay end
+        if lustEntry.glowEnabled then
+            local gf = GetOrCreateGlowForAura(lustEntry); if gf then gf:ShowGlow() end
+        end
+        if API.DEBUG then print("|cFFFF6600[MidnightQoL]|r Lust: " .. spellName) end
+    elseif not foundSID and lustDebuffActive then
+        lustDebuffActive = false
+        activeAlerts[LUST_ALERT_KEY] = nil
+        ReleaseOverlay(LUST_ALERT_KEY)
+        local gf = spellGlowFrames[LUST_ALERT_KEY]; if gf then gf:HideGlow() end
+    end
+end
+API.CheckLustDebuff  = CheckLustDebuff
+API.LUST_ALERT_KEY   = LUST_ALERT_KEY
+API.SATED_DEBUFF_IDS = SATED_DEBUFF_IDS
+
+buffEvents:SetScript("OnEvent", function(self, event, unit, updateInfo)
+    if event == "UNIT_AURA" then
+        if unit == "player" then CheckLustDebuff() end
+        return
+    end
     if event == "PLAYER_LOGIN" then
         C_Timer.After(1, function()
             RebuildNameMap()
@@ -1257,18 +1106,10 @@ buffEvents:SetScript("OnEvent", function(self, event, unit, updateInfo)
             C_Timer.After(0.5, function()
                 if API.CheckCDMismatch then API.CheckCDMismatch() end
             end)
-            C_Timer.After(5, function()
+            C_Timer.After(2, function()
                 RebuildNameMap()
                 HookBuffViewerPanels()
             end)
-            -- Build instanceID map on login (without firing alerts)
-            C_Timer.After(1.5, function()
-                BuildInstanceMap()
-                ScanTrackedBuffs()
-            end)
-            -- Start external frame ticker and apply position
-            StartExternalTicker()
-            ApplyExtFramePosition()
         end)
     elseif event == "PLAYER_REGEN_DISABLED" then
         -- Re-walk buff panels before starting poll so any frames that appeared
@@ -1281,8 +1122,6 @@ buffEvents:SetScript("OnEvent", function(self, event, unit, updateInfo)
         for sid, timer in pairs(buffPollLossTimers) do
             timer:Cancel(); buffPollLossTimers[sid] = nil
         end
-        BuildInstanceMap()
-        ScanTrackedDebuffs()
         HookBuffViewerPanels()
         -- Re-warm cooldown-viewer CID map
         local panelNames = {"EssentialCooldownViewer","UtilityCooldownViewer","BuffIconCooldownViewer",
@@ -1357,7 +1196,7 @@ do
                     end
                 end
             end
-            collect(trackedBuffs); collect(trackedDebuffs); collect(trackedExternals)
+            collect(trackedBuffs)
             table.sort(ids)
             BuffAlertDB.cdMismatchFingerprint = table.concat(ids, ",")
         end
@@ -1398,7 +1237,7 @@ local function CheckCDMismatch()
                 end
             end
         end
-        collect(trackedBuffs); collect(trackedDebuffs); collect(trackedExternals)
+        collect(trackedBuffs)
         table.sort(ids)
         return table.concat(ids, ",")
     end
@@ -1438,8 +1277,6 @@ local function CheckCDMismatch()
         table.insert(missing, {sid=sid, name=name, category=category})
     end
     for _,b in ipairs(trackedBuffs)     do checkEntry(b,"Buff")     end
-    for _,d in ipairs(trackedDebuffs)   do checkEntry(d,"Debuff")   end
-    for _,e in ipairs(trackedExternals) do checkEntry(e,"External") end
     if #missing == 0 then return end
 
     local lines = {
@@ -1533,8 +1370,6 @@ API.RegisterLayoutHandles(function()
         end
     end
     addAuraHandles(trackedBuffs,    "Buff")
-    addAuraHandles(trackedDebuffs,  "Debuff")
-    addAuraHandles(trackedExternals,"External")
     return handles
 end)
 
@@ -1543,7 +1378,7 @@ SLASH_CUSTOMSOUNDSDEBUG1 = "/qoldebug"
 SlashCmdList["CUSTOMSOUNDSDEBUG"] = function()
     print("|cFFFFFF00[MidnightQoL DEBUG]|r =============================")
     print("buffDebuffAlertsEnabled: "..tostring(buffDebuffAlertsEnabled))
-    print("Tracked: buffs="..#trackedBuffs.." debuffs="..#trackedDebuffs.." externals="..#trackedExternals)
+    print("Tracked: buffs="..#trackedBuffs.."  (debuffs/externals disabled)")
     local cidCount=0; for _ in pairs(cidToEntry) do cidCount=cidCount+1 end
     print("CID map entries: "..cidCount)
     RebuildNameMap()
