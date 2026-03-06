@@ -2,7 +2,7 @@
 ## Title: Midnight QoL — QoL
 ## Notes: Pet reminder, pull timer, break timer, /rc ready check, experience bar, auto-quest, and General tab toggles.
 ## Author: Rogus
-## Version: 2.2
+## Version: 1.0.36
 ## Dependencies: MidnightQoL
 
 ExperienceBar.lua
