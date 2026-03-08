@@ -2,7 +2,7 @@
 ## Title: Midnight QoL — Resource Bars
 ## Notes: Resource Bars
 ## Author: Rogus
-## Version: 1.0.36
+## Version: 1.0.37
 ## Dependencies: MidnightQoL
 
 ResourceBars.lua
