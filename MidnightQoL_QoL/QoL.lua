@@ -286,7 +286,13 @@ local function StartPetReminderTicker()
             StopPetReminderTicker(); return
         end
         if IsMounted() then return end
-        ShowPetReminderOverlay(true)
+        if not PET_CLASSES[API.playerClass] then
+            StopPetReminderTicker(); return
+        end
+        -- Only fire if pet is actually missing
+        if not UnitExists("pet") then
+            ShowPetReminderOverlay(true)
+        end
     end)
 end
 
