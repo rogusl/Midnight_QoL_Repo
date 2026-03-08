@@ -2,7 +2,7 @@
 ## Title: Midnight QoL — Whisper Alerts
 ## Notes: Whisper sound alerts and unread indicator. Settings are account-wide.
 ## Author: Rogus
-## Version: 2.2
+## Version: 1.0.36
 ## Dependencies: MidnightQoL
 
 Whisper.lua
