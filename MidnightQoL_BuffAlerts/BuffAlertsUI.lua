@@ -13,17 +13,17 @@ local trackedExternals = API.trackedExternals
 
 -- ── Content frame (hosted inside Core's scroll frame) ─────────────────────────
 local contentFrame = CreateFrame("Frame", "MidnightQoLAlertsFrame", UIParent)
-contentFrame:SetSize(620, 1); contentFrame:Hide()
+contentFrame:SetSize(760, 1); contentFrame:Hide()
 
 -- ── Per-type entry pool ────────────────────────────────────────────────────────
 local auraEntryPool = {buff={}, debuff={}, external={}}
 
 local function CreateAuraEntry(parentFrame, slotIndex, auraType)
     local ef = CreateFrame("Frame","BuffAlertEntry"..auraType..slotIndex, parentFrame)
-    ef:SetSize(640,115); ef:Hide()
+    ef:SetSize(760,115); ef:Hide()
 
     local sep = ef:CreateTexture(nil,"BACKGROUND"); sep:SetColorTexture(0.3,0.3,0.3,0.4)
-    sep:SetPoint("TOPLEFT",0,0); sep:SetSize(640,1)
+    sep:SetPoint("TOPLEFT",0,0); sep:SetSize(760,1)
 
     local enableCb = CreateFrame("CheckButton","BuffAlertEnableCheckbox"..auraType..slotIndex,ef,"UICheckButtonTemplate")
     enableCb:SetSize(20,20); enableCb:SetPoint("TOPLEFT",0,-2)
@@ -330,6 +330,86 @@ local function OnAlertsTabDeactivate()
     --]]
 end
 
+-- ── Boss Warning Sound ────────────────────────────────────────────────────────
+local bwSection = contentFrame:CreateFontString(nil, "ARTWORK", "GameFontNormal")
+bwSection:SetText("|cFFFF8844Boss Warning Sound|r  |cFFAAAAAA(plays when Blizzard's boss popup appears)|r")
+
+local bwSoundDropdown = API.CreateSoundSelectorButton(contentFrame, "MidnightBossWarnSoundBtn")
+
+local bwTestBtn = CreateFrame("Button", nil, contentFrame, "GameMenuButtonTemplate")
+bwTestBtn:SetSize(60, 22)
+bwTestBtn:SetText("Test")
+bwTestBtn:SetScript("OnClick", function()
+    local db = BuffAlertDB
+    if db and db.bossWarnSound and db.bossWarnSound.sound then
+        API.PlayCustomSound(db.bossWarnSound.sound, db.bossWarnSound.soundIsID)
+    end
+end)
+
+local bwStatusLbl = contentFrame:CreateFontString(nil, "ARTWORK", "GameFontNormalSmall")
+bwStatusLbl:SetTextColor(0.6, 0.6, 0.6, 1)
+
+local function RefreshBossWarnUI()
+    -- Position relative to bottom of aura list — use a fixed offset from top
+    -- We anchor to contentFrame bottom since aura list is dynamic
+    bwSection:ClearAllPoints()
+    bwSection:SetPoint("BOTTOMLEFT", contentFrame, "BOTTOMLEFT", 8, 72)
+
+    bwSoundDropdown:ClearAllPoints()
+    bwSoundDropdown:SetPoint("BOTTOMLEFT", contentFrame, "BOTTOMLEFT", 8, 44)
+
+    bwTestBtn:ClearAllPoints()
+    bwTestBtn:SetPoint("LEFT", bwSoundDropdown, "RIGHT", 8, 0)
+
+    bwStatusLbl:ClearAllPoints()
+    bwStatusLbl:SetPoint("LEFT", bwTestBtn, "RIGHT", 10, 0)
+    if API.bossFrameHooked then
+        bwStatusLbl:SetText("|cFF00FF00● hooked: " .. API.bossFrameHooked .. "|r  (use /mqlbosssniff to find frame name if silent)")
+    else
+        bwStatusLbl:SetText("|cFFFF4444● frame not found yet|r  — use /mqlbosssniff during a boss warning to identify the frame")
+    end
+
+    -- Load saved sound
+    local db = BuffAlertDB
+    if db and db.bossWarnSound then
+        bwSoundDropdown:SetSelectedSound(db.bossWarnSound.sound, db.bossWarnSound.soundIsID)
+    end
+
+    -- Save on change
+    bwSoundDropdown.onSoundSelected = function(sound, isID)
+        BuffAlertDB.bossWarnSound = BuffAlertDB.bossWarnSound or {}
+        BuffAlertDB.bossWarnSound.sound    = sound
+        BuffAlertDB.bossWarnSound.soundIsID = isID
+    end
+end
+
+-- Hook into tab activate so the section refreshes and status is current
+local _origActivate = OnAlertsTabActivate
+OnAlertsTabActivate = function()
+    _origActivate()
+    RefreshBossWarnUI()
+end
+
 API.RegisterTab("Alerts", contentFrame, OnAlertsTabActivate, 80, OnAlertsTabDeactivate, 2)
+
+-- Called by Core's ActivateTabByIndex on every tab switch so the button
+-- is hidden when any other tab is active, regardless of activation order.
+API.UpdateAddButtons = function(activeTabIndex)
+    -- Find our own tab index by matching the registered frame
+    local isAlertsTab = false
+    if _G["MidnightQoLTab1"] then  -- tabs exist
+        for i = 1, 20 do
+            local btn = _G["MidnightQoLTab" .. i]
+            if not btn then break end
+            -- Core hides non-active tab frames; contentFrame visibility tells us
+        end
+    end
+    -- Simpler: just check if contentFrame is shown
+    if contentFrame:IsShown() then
+        addBuffBtn:Show()
+    else
+        addBuffBtn:Hide()
+    end
+end
 -- Ensure buttons start hidden (RebuildTabBar activates tab 1/General on load)
 OnAlertsTabDeactivate()

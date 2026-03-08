@@ -6,12 +6,12 @@
 
 local API = MidnightQoLAPI
 
-local MAX_BARS    = 2
+local MAX_BARS    = 6
 local function GetBarConfigs() return API.barConfigs end
 
 -- ── Content frame ─────────────────────────────────────────────────────────────
 local contentFrame = CreateFrame("Frame","MidnightQoLResourceBarsFrame",UIParent)
-contentFrame:SetSize(640,500); contentFrame:Hide()
+contentFrame:SetSize(760,500); contentFrame:Hide()
 
 -- ── Header ────────────────────────────────────────────────────────────────────
 local headerLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
@@ -19,7 +19,7 @@ headerLbl:SetPoint("TOPLEFT",0,-4)
 headerLbl:SetText("|cFFFFD700Resource Bars|r")
 
 local descLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-descLbl:SetPoint("TOPLEFT",0,-28); descLbl:SetWidth(630); descLbl:SetJustifyH("LEFT"); descLbl:SetWordWrap(true)
+descLbl:SetPoint("TOPLEFT",0,-28); descLbl:SetWidth(750); descLbl:SetJustifyH("LEFT"); descLbl:SetWordWrap(true)
 descLbl:SetTextColor(0.75,0.75,0.75,1)
 descLbl:SetText(
     "Configure up to "..MAX_BARS.." live resource bars per spec. Bars auto-populate with your spec's primary and "..
@@ -31,6 +31,7 @@ local rowWidgets = {}   -- [i] = widget table for bar slot i
 
 -- Power type entries for the dropdown
 local POWER_ENTRIES = {
+    {name="Health",            type=99},  -- player/pet/target health bar
     {name="Mana",          type=0},
     {name="Rage",          type=1},
     {name="Focus",         type=2},
@@ -119,6 +120,21 @@ local function GetFilteredPowerEntries(unit)
     local isRole  = unit and unit:sub(1,5) == "role:"
     local isParty = unit and unit:sub(1,5) == "party"
 
+    -- Pet: health + focus only
+    if unit == "pet" then
+        return {
+            {name="Health", type=99},
+            {name="Focus",  type=2},
+        }
+    end
+
+    -- Target/focus: health only (power type unknown at config time)
+    if unit == "target" or unit == "focus" then
+        return {
+            {name="Health", type=99},
+        }
+    end
+
     -- For party/role tokens we can't know the spec, show everything
     if isRole or isParty then
         return POWER_ENTRIES
@@ -131,7 +147,7 @@ local function GetFilteredPowerEntries(unit)
 
         if allowed then
             -- Build a set for O(1) lookup
-            local allowedSet = {}
+            local allowedSet = {[99]=true}  -- Health always available
             for _, pt in ipairs(allowed) do allowedSet[pt] = true end
 
             local filtered = {}
@@ -148,14 +164,15 @@ local function GetFilteredPowerEntries(unit)
         local filtered = {}
         for _, entry in ipairs(POWER_ENTRIES) do
             local valid = false
-            if entry.type == 20 then  -- Stagger: show for any Monk
+            if entry.type == 99 then  -- Health: always valid
+                valid = true
+            elseif entry.type == 20 then  -- Stagger: show for any Monk
                 valid = (classFile == "MONK")
             elseif entry.type == 21 then  -- Maelstrom Weapon: Shaman only
                 valid = (classFile == "SHAMAN")
             elseif entry.type == 22 then  -- Wild Imps: Demonology Warlock only
                 valid = (classFile == "WARLOCK")
             elseif entry.type == 12 then  -- Chi: only if UnitPowerMax says it exists
-                -- This correctly returns 0 for Brewmaster, so Chi won't show for them
                 local maxVal = UnitPowerMax("player", entry.type)
                 valid = maxVal and maxVal > 0
             elseif entry.type == 0 or entry.type == 3 then
@@ -169,7 +186,7 @@ local function GetFilteredPowerEntries(unit)
         if #filtered > 0 then return filtered end
     end
 
-    -- Fallback for target/focus or unknown: show all
+    -- Fallback for unknown units: show all
     return POWER_ENTRIES
 end
 
@@ -224,6 +241,7 @@ local ROLE_UNIT_TOKENS = {
 }
 local UNIT_TOKENS = {
     {unit="player",  fallback="Player"},
+    {unit="pet",     fallback="Pet"},
     {unit="target",  fallback="Target"},
     {unit="focus",   fallback="Focus"},
     {unit="party1",  fallback="Party 1"},
@@ -366,7 +384,7 @@ local function CreateBarRow(i)
 
     -- Separator line above each row
     local sep = contentFrame:CreateTexture(nil,"BACKGROUND")
-    sep:SetColorTexture(0.3,0.3,0.3,0.4); sep:SetSize(630,1)
+    sep:SetColorTexture(0.3,0.3,0.3,0.4); sep:SetSize(750,1)
     sep:SetPoint("TOPLEFT",0,y1+8)
 
     -- ── Sub-row 1 ─────────────────────────────────────────────────────────────

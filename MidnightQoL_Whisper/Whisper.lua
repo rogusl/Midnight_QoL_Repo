@@ -11,7 +11,7 @@ local whisperList            = {}
 local unreadWhispers         = {}
 local whisperEnabled         = false
 local ignoreOutgoingWhispers = true
-local whisperIndicatorEnabled= true
+local whisperIndicatorEnabled= false
 
 -- Expose for WhisperUI to read/write
 API.whisperList             = whisperList
@@ -38,7 +38,7 @@ local function LoadWhisperSettings()
     for _, v in ipairs(BuffAlertDB.whisperList or {}) do table.insert(whisperList, v) end
     whisperEnabled          = BuffAlertDB.whisperEnabled          or false
     ignoreOutgoingWhispers  = (BuffAlertDB.ignoreOutgoingWhispers ~= false)
-    whisperIndicatorEnabled = (BuffAlertDB.whisperIndicatorEnabled ~= false)
+    whisperIndicatorEnabled = (BuffAlertDB.whisperIndicatorEnabled == true)
     -- Sync UI if open
     if API.SyncWhisperUI then API.SyncWhisperUI() end
 end

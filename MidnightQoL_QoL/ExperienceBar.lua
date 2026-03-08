@@ -11,7 +11,7 @@ local API = MidnightQoLAPI
 
 -- ── Default settings ──────────────────────────────────────────────────────────
 local DEFAULTS = {
-    expBarEnabled    = true,
+    expBarEnabled    = false,
     expBarWidth      = 600,
     expBarHeight     = 10,
     expBarX          = 0,
@@ -157,6 +157,15 @@ local function FormatTimeToLevel(seconds)
     else return string.format("%ds", s) end
 end
 
+-- ── DB helper ─────────────────────────────────────────────────────────────────
+local function GetDB()
+    if not BuffAlertDB then return DEFAULTS end
+    for k, v in pairs(DEFAULTS) do
+        if BuffAlertDB[k] == nil then BuffAlertDB[k] = v end
+    end
+    return BuffAlertDB
+end
+
 -- ── Pending quest XP ──────────────────────────────────────────────────────────
 -- ── Session XP tracking ──────────────────────────────────────────────────────
 -- Persisted in saved vars so it survives /reload but resets on level-up.
@@ -248,16 +257,6 @@ local function GetPendingQuestXP()
 
     return totalXP, numQuests
 end
-
--- ── DB helper ─────────────────────────────────────────────────────────────────
-local function GetDB()
-    if not BuffAlertDB then return DEFAULTS end
-    for k, v in pairs(DEFAULTS) do
-        if BuffAlertDB[k] == nil then BuffAlertDB[k] = v end
-    end
-    return BuffAlertDB
-end
-
 
 -- ── Reputation API compatibility shim ─────────────────────────────────────────
 local function GetWatchedFaction()

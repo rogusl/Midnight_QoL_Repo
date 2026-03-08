@@ -62,7 +62,7 @@ end
 
 -- ── Content frame ─────────────────────────────────────────────────────────────
 local cf = CreateFrame("Frame", "MidnightQoLCastbarFrame", UIParent)
-cf:SetSize(620, 300)
+cf:SetSize(760, 300)
 cf:Hide()
 
 local function MakeCb(name, dbKey, label, px, py)

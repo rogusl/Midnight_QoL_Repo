@@ -12,67 +12,102 @@ local PET_CLASSES = { HUNTER = true, WARLOCK = true }
 -- Hunter:  what the pet's family brings to the group.
 local PET_ABILITIES = {
     -- ── Warlock demons ────────────────────────────────────────────────────
-    ["Imp"]        = { interrupt="Cauterize Master — Command Demon",              defensive="Singe Magic — dispel magic debuff from ally" },
+    ["Imp"]        = { interrupt="Cauterize Master — Command Demon",
+                       defensive="Singe Magic — dispel magic debuff from ally" },
     ["Voidwalker"] = { defensive="Shadow Bulwark — Command Demon absorb shield" },
-    ["Felhunter"]  = { interrupt="Spell Lock — Command Demon silence/interrupt",  cleanse="Devour Magic — dispel magic" },
+    ["Felhunter"]  = { interrupt="Spell Lock — Command Demon silence/interrupt",
+                       cleanse="Devour Magic — dispel magic" },
     ["Succubus"]   = { cc="Seduction — Command Demon charm (humanoids)" },
-    ["Felguard"]   = { interrupt="Axe Toss — Command Demon stun",                cc="Pursuit — root" },
-    ["Wrathguard"] = { interrupt="Mortal Cleave — Command Demon",                 cc="Threatening Presence — taunt" },
-    ["Observer"]   = { interrupt="Optical Blast — Command Demon silence",         cleanse="Fel Absorption — absorb" },
-    ["Infernal"]   = { cc="Meteor Strike — stun,  Immolation — AoE" },
-    ["Doomguard"]  = { interrupt="Doom Bolt — Command Demon",                     defensive="Demonic Fortitude — stamina buff" },
+    ["Felguard"]   = { interrupt="Axe Toss — Command Demon stun" },
+    ["Wrathguard"] = { interrupt="Mortal Cleave — Command Demon" },
+    ["Observer"]   = { interrupt="Optical Blast — Command Demon silence" },
+    ["Infernal"]   = { cc="Meteor Strike — stun" },
+    ["Doomguard"]  = { interrupt="Doom Bolt — Command Demon" },
     ["Darkglare"]  = { cc="Eye Sore — damage + DoT" },
-    -- ── Hunter pets — by pet family role ─────────────────────────────────
-    -- Ferocity (DPS / Heroism)
-    ["Cat"]          = { interrupt="Rake — silence" },
-    ["Lynx"]         = { interrupt="Rake — silence" },
-    ["Cheetah"]      = { interrupt="Rake — silence" },
-    ["Owl"]          = { interrupt="Screech — silence" },
-    ["Bat"]          = { interrupt="Sonic Blast — silence" },
-    ["Dragonhawk"]   = { interrupt="Fire Breath" },
-    ["Nether Ray"]   = { interrupt="Nether Shock — silence" },
-    ["Wind Serpent"] = { interrupt="Lightning Breath" },
-    ["Carrion Bird"] = { interrupt="Demoralizing Screech" },
-    ["Raptor"]       = { interrupt="Tear Armor" },
-    ["Devilsaur"]    = { interrupt="Monstrous Bite",      cc="Fearsome Roar — fear" },
-    ["Wolf"]         = { defensive="Furious Howl — attack power buff" },
-    ["Core Hound"]   = { defensive="Ancient Hysteria — Heroism/Lust" },
-    ["Hyena"]        = { cc="Cackling Howl — speed reduce" },
-    ["Wasp"]         = { cc="Sting — slow" },
-    ["Scorpid"]      = { cc="Scorpid Poison — slow" },
-    ["Serpent"]      = { cleanse="Viper Sting — mana drain" },
-    -- Tenacity (tank / defensive)
-    ["Bear"]         = { defensive="Thick Hide, Last Stand — damage reduction" },
-    ["Turtle"]       = { defensive="Shell Shield — extreme damage reduction" },
-    ["Boar"]         = { defensive="Charge, Gore — threat" },
-    ["Gorilla"]      = { interrupt="Pummel",              defensive="Thunderstomp — AoE threat" },
-    ["Warp Stalker"] = { defensive="Warp — phase shift" },
-    ["Crab"]         = { defensive="Shell Shield",        cc="Pin — root" },
-    ["Clefthoof"]    = { defensive="Thick Hide" },
-    ["Worm"]         = { defensive="Burrow Attack" },
-    ["Tallstrider"]  = { defensive="Dust Cloud — miss chance" },
-    -- Cunning (PvP / utility)
-    ["Spider"]       = { cc="Web — root" },
-    ["Silithid"]     = { cc="Venom Web Spray — root" },
-    ["Rhino"]        = { cc="Stampede — knockback" },
-    ["Mammoth"]      = { cc="Trample — knockback" },
-    ["Ravager"]      = { cc="Ravage" },
-    ["Sporebat"]     = { cc="Spore Cloud — slow" },
-    ["Chimaera"]     = { cleanse="Froststorm Breath — slow" },
-    -- Special utility
-    ["Quilen"]       = { defensive="Eternal Guardian — battle rez", cleanse="Quilen Wail — AoE dispel" },
-    ["Spirit Beast"] = { cleanse="Spirit Mend — heal",    defensive="Spirit Walk — stealth" },
-    ["Water Strider"]= { defensive="Surface Trot — water walking" },
+    -- ── Hunter pets — keyed by spec role ──────────────────────────────────
+    ["Ferocity"] = { defensive="Primal Rage — Heroism/Bloodlust (2 min cd)" },
+    ["Tenacity"] = { defensive="Survival of the Fittest — 20% DR cooldown" },
+    ["Cunning"]  = { defensive="Master's Call — removes roots/snares on you and pet" },
 }
 
+-- Maps GetPetSpecialization() spec IDs to the keys in PET_ABILITIES above.
+-- These IDs are stable: 253 = Ferocity, 254 = Tenacity, 255 = Cunning.
+local HUNTER_PET_SPEC_ID_TO_NAME = { [253]="Ferocity", [254]="Tenacity", [255]="Cunning" }
+
 local PET_ROLE_FALLBACK = {
-    HUNTER  = { defensive="Unknown family — check Petopia for role" },
+    HUNTER  = { defensive="Unknown spec — open pet talents to assign Ferocity/Tenacity/Cunning" },
     WARLOCK = { interrupt="Command Demon varies by active pet" },
 }
 
+local function GetPetSpecName()
+    if not UnitExists("pet") then return nil end
+
+    -- TWW+: GetSpecialization(false, true) returns the pet's spec index (1/2/3).
+    -- GetSpecializationInfo(index, false, true) returns the spec name.
+    if GetSpecialization then
+        local petSpecIndex = GetSpecialization(false, true)
+        if petSpecIndex and petSpecIndex > 0 then
+            local _, specName = GetSpecializationInfo(petSpecIndex, false, true)
+            if specName then
+                for _, k in ipairs({"Ferocity", "Tenacity", "Cunning"}) do
+                    if specName:find(k) then return k end
+                end
+            end
+        end
+    end
+
+    -- Legacy fallback: GetPetSpecialization() (returns 253/254/255 in older API)
+    if GetPetSpecialization then
+        local specID = GetPetSpecialization()
+        local name = specID and HUNTER_PET_SPEC_ID_TO_NAME[specID]
+        if name then return name end
+    end
+
+    return nil
+end
+
+local function IsPetSpecPending()
+    -- Truly pending only if the spec index API returns nil (not yet loaded).
+    -- Index 0 or no spec set is a valid resolved state — don't block on it.
+    if API.playerClass ~= "HUNTER" then return false end
+    if not UnitExists("pet") then return false end
+    if GetSpecialization then
+        return GetSpecialization(false, true) == nil
+    end
+    if GetPetSpecialization then
+        return GetPetSpecialization() == nil
+    end
+    return false
+end
+
+-- /midpetdebug — paste output here if the spec still shows wrong
+SLASH_MIDPETDEBUG1 = "/midpetdebug"
+SlashCmdList["MIDPETDEBUG"] = function()
+    print("|cFF00CCFF[MidnightQoL Pet Debug]|r")
+    print("  UnitExists(pet): "..tostring(UnitExists("pet")))
+    print("  UnitCreatureFamily(pet): "..tostring(UnitCreatureFamily and UnitCreatureFamily("pet")))
+    local petIdx = GetSpecialization and GetSpecialization(false, true)
+    print("  GetSpecialization(false,true): "..tostring(petIdx))
+    if petIdx and petIdx > 0 then
+        local _, sn = GetSpecializationInfo(petIdx, false, true)
+        print("  GetSpecializationInfo name: "..tostring(sn))
+    end
+    print("  GetPetSpecialization(): "..tostring(GetPetSpecialization and GetPetSpecialization()))
+    print("  GetPetSpecName(): "..tostring(GetPetSpecName()))
+    print("  IsPetSpecPending(): "..tostring(IsPetSpecPending()))
+end
+
 local function GetPetAbilitySummary()
-    local family = UnitCreatureFamily and UnitCreatureFamily("pet")
-    local data   = family and PET_ABILITIES[family] or PET_ROLE_FALLBACK[API.playerClass]
+    local data
+    if API.playerClass == "HUNTER" then
+        local specName = GetPetSpecName()
+        if IsPetSpecPending() then return nil end  -- genuinely not loaded yet
+        -- specName may be nil if pet has no spec (specID==0) — use fallback
+        data = specName and PET_ABILITIES[specName] or PET_ROLE_FALLBACK["HUNTER"]
+    else
+        local family = UnitCreatureFamily and UnitCreatureFamily("pet")
+        data = family and PET_ABILITIES[family] or PET_ROLE_FALLBACK[API.playerClass]
+    end
     if not data then return nil end
     local parts = {}
     if data.interrupt then table.insert(parts, "|cFFFF6060[INTERRUPT]|r "..data.interrupt) end
@@ -87,7 +122,7 @@ local petReminderFrame = CreateFrame("Frame","MidnightQoLPetReminder",UIParent)
 petReminderFrame:SetSize(420,96); petReminderFrame:SetPoint("CENTER",UIParent,"CENTER",0,80)
 petReminderFrame:SetFrameStrata("HIGH"); petReminderFrame:SetMovable(true); petReminderFrame:EnableMouse(true)
 petReminderFrame:RegisterForDrag("LeftButton"); petReminderFrame:SetClampedToScreen(true)
-petReminderFrame:SetScript("OnDragStart",function(self) self:StartMoving() end)
+petReminderFrame:SetScript("OnDragStart",function(self) if API.IsLayoutMode and API.IsLayoutMode() then self:StartMoving() end end)
 petReminderFrame:SetScript("OnDragStop",function(self)
     self:StopMovingOrSizing()
     if BuffAlertDB then
@@ -196,7 +231,16 @@ local function ShowPetReminderOverlay(playSound)
         petReminderText:SetTextColor(0.3,1,0.3,1)
         local family = UnitCreatureFamily and UnitCreatureFamily("pet") or ""
         local petName = UnitName("pet") or "Your Pet"
-        petReminderText:SetText(petName..(family~="" and ("  |cFFAAAAAA("..family..")|r") or ""))
+        -- For hunters show the spec (Ferocity/Tenacity/Cunning) since that
+        -- determines the actual ability, not the family name.
+        local displayTag
+        if API.playerClass == "HUNTER" then
+            local specName = GetPetSpecName()
+            displayTag = specName and ("|cFFFFD700"..specName.."|r") or (family ~= "" and ("|cFFAAAAAA("..family..")|r") or nil)
+        else
+            displayTag = family ~= "" and ("|cFFAAAAAA("..family..")|r") or nil
+        end
+        petReminderText:SetText(petName..(displayTag and ("  "..displayTag) or ""))
         local petIconPath = FAMILY_ICONS[family] or (API.playerClass=="HUNTER" and "Interface\\Icons\\Ability_Hunter_BeastCall" or "Interface\\Icons\\Spell_Shadow_SummonImp")
         petReminderIcon:SetTexture(petIconPath)
         petReminderSub:SetText(GetPetAbilitySummary() or "|cFFAAAAAA(No ability data for this family)|r")
@@ -223,14 +267,49 @@ local function ShowPetReminderOverlay(playSound)
     end)
 end
 
+local petReminderTicker = nil
+
+local function StopPetReminderTicker()
+    if petReminderTicker then petReminderTicker:Cancel(); petReminderTicker = nil end
+end
+
+local function StartPetReminderTicker()
+    StopPetReminderTicker()
+    if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then return end
+    if not PET_CLASSES[API.playerClass] then return end
+    -- Fire every 2 minutes while pet is missing
+    petReminderTicker = C_Timer.NewTicker(120, function()
+        if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then
+            StopPetReminderTicker(); return
+        end
+        if UnitExists("pet") then
+            StopPetReminderTicker(); return
+        end
+        if IsMounted() then return end
+        ShowPetReminderOverlay(true)
+    end)
+end
+
 local function CheckPetReminder(reason)
     if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then return end
     if not PET_CLASSES[API.playerClass] then return end
     -- Don't fire while mounted or flying — pet is dismissed by design
     if IsMounted() then return end
+    -- If the pet exists but spec hasn't been populated yet, stay silent —
+    -- PET_SPECIALIZATION_CHANGED will fire once the data is ready.
+    if IsPetSpecPending() then return end
     ShowPetReminderOverlay(not UnitExists("pet"))
 end
 API.CheckPetReminder = CheckPetReminder
+
+-- Start or stop the periodic reminder ticker based on pet presence.
+local function SyncPetReminderTicker()
+    if UnitExists("pet") or not (BuffAlertDB and BuffAlertDB.petReminderEnabled) or not PET_CLASSES[API.playerClass] then
+        StopPetReminderTicker()
+    else
+        if not petReminderTicker then StartPetReminderTicker() end
+    end
+end
 
 -- ── Layout handle provider ─────────────────────────────────────────────────────
 API.RegisterLayoutHandles(function()
@@ -255,30 +334,55 @@ qolEvents:RegisterEvent("READY_CHECK")
 qolEvents:RegisterEvent("UNIT_PET")
 qolEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
 qolEvents:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
+qolEvents:RegisterEvent("PLAYER_REGEN_ENABLED")  -- check pet reminder on leaving combat
+
+-- Poll for pet spec up to maxTries times, 1s apart.
+-- Stops as soon as GetPetSpecialization() returns a valid ID.
+local function WaitForPetSpec(maxTries)
+    maxTries = maxTries or 8
+    local tries = 0
+    local function attempt()
+        tries = tries + 1
+        if not UnitExists("pet") then return end  -- pet gone, abort
+        if not IsPetSpecPending() then
+            CheckPetReminder("pet spec resolved")
+            return
+        end
+        if tries < maxTries then
+            C_Timer.After(1, attempt)
+        end
+    end
+    C_Timer.After(0.5, attempt)
+end
 
 qolEvents:SetScript("OnEvent", function(self, event, ...)
     if event == "PLAYER_LOGIN" then
-        C_Timer.After(3, function() CheckPetReminder("login") end)
         -- Restore pet reminder position
         if BuffAlertDB and BuffAlertDB.petReminderX then
             petReminderFrame:ClearAllPoints()
             petReminderFrame:SetPoint("CENTER",UIParent,"CENTER", BuffAlertDB.petReminderX, BuffAlertDB.petReminderY or 80)
         end
+        C_Timer.After(3, function() CheckPetReminder("login"); SyncPetReminderTicker() end)
     elseif event == "READY_CHECK" then
         CheckPetReminder("ready check")
     elseif event == "UNIT_PET" then
         local unit = ...
         if unit == "player" and PET_CLASSES[API.playerClass] then
-            -- Small delay so mount state is settled before we check IsMounted()
-            C_Timer.After(0.5, function() CheckPetReminder("pet changed") end)
+            if IsMounted() then return end
+            if IsPetSpecPending() then
+                -- Spec data isn't ready yet — poll until it is
+                WaitForPetSpec()
+            else
+                C_Timer.After(0.5, function() CheckPetReminder("pet changed"); SyncPetReminderTicker() end)
+            end
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
-        local isInitialLogin, isReloadingUi = ...
-        if not isInitialLogin and not isReloadingUi and IsInInstance() then
-            C_Timer.After(3, function() CheckPetReminder("entering instance") end)
-        end
+        -- Fire on all zone transitions including login and reload
+        C_Timer.After(3, function() CheckPetReminder("entering world"); SyncPetReminderTicker() end)
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         CheckPetReminder("spec change")
+    elseif event == "PLAYER_REGEN_ENABLED" then
+        CheckPetReminder("leaving combat")
     end
 end)
 
@@ -304,7 +408,7 @@ breakBar:SetPoint("TOP", UIParent, "TOP", 0, -180)
 breakBar:SetFrameStrata("HIGH"); breakBar:Hide()
 breakBar:SetMovable(true); breakBar:EnableMouse(true)
 breakBar:RegisterForDrag("LeftButton")
-breakBar:SetScript("OnDragStart", function(self) self:StartMoving() end)
+breakBar:SetScript("OnDragStart", function(self) if API.IsLayoutMode and API.IsLayoutMode() then self:StartMoving() end end)
 breakBar:SetScript("OnDragStop", function(self)
     self:StopMovingOrSizing()
     if BuffAlertDB then

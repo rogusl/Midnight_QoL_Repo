@@ -5,11 +5,17 @@
 -- ============================================================
 
 local API = MidnightQoLAPI
+local _errorLog = {}  -- shared between Debug() and the error handler; populated at bottom of file
 
 -- ── Debug helper ──────────────────────────────────────────────────────────────
 local function Debug(msg)
     if API.DEBUG then
+        local line = date("%H:%M:%S") .. " [DEBUG] " .. tostring(msg)
         print("|cFF00FF00[MidnightQoL DEBUG]|r " .. tostring(msg))
+        -- Also write to the file log if it's active
+        if _errorLog then
+            _errorLog[#_errorLog + 1] = line
+        end
     end
 end
 API.Debug = Debug
@@ -180,7 +186,7 @@ API.DeepCopy = DeepCopy
 
 -- ── Main window ────────────────────────────────────────────────────────────────
 local mainFrame = CreateFrame("Frame", "MidnightQoLMainFrame", UIParent, "BackdropTemplate")
-mainFrame:SetSize(700, 600)
+mainFrame:SetSize(820, 600)
 mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, -50)
 mainFrame:SetBackdrop({
     bgFile   = "Interface/DialogFrame/UI-DialogBox-Background",
@@ -610,11 +616,19 @@ minimapBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
 minimapBtn:EnableMouse(true)
 minimapBtn:SetScript("OnMouseDown",function(self,button)
     if button=="LeftButton" then
-        minimapDragging=true
+        minimapDragging=false
+        local startX, startY = GetCursorPosition()
         self:SetScript("OnUpdate",function()
-            if not minimapDragging then self:SetScript("OnUpdate",nil); return end
-            local mx,my=Minimap:GetCenter(); local cx,cy=GetCursorPosition()
-            local scale=UIParent:GetEffectiveScale(); cx,cy=cx/scale,cy/scale
+            local cx,cy=GetCursorPosition()
+            local scale=UIParent:GetEffectiveScale()
+            -- Only begin drag after moving 4 pixels — preserves click detection
+            if not minimapDragging then
+                local dist = math.sqrt((cx-startX)^2+(cy-startY)^2)
+                if dist < 4 then return end
+                minimapDragging = true
+            end
+            local mx,my=Minimap:GetCenter()
+            cx,cy=cx/scale,cy/scale
             UpdateMinimapPos(math.deg(math.atan2(cy-my,cx-mx)),math.sqrt((cx-mx)^2+(cy-my)^2))
         end)
     end
@@ -625,18 +639,18 @@ end)
 
 -- Hidden state checkboxes (exist for HookScript compatibility)
 local buffAlertEnabledCheckbox=CreateFrame("CheckButton","MidnightQoLBuffAlertEnabledCheckbox",mainFrame,"UICheckButtonTemplate")
-buffAlertEnabledCheckbox:SetChecked(true); buffAlertEnabledCheckbox:Hide()
+buffAlertEnabledCheckbox:SetChecked(false); buffAlertEnabledCheckbox:Hide()
 local whisperIndicatorEnabledCheckbox=CreateFrame("CheckButton","MidnightQoLWhisperIndicatorEnabledCheckbox",mainFrame,"UICheckButtonTemplate")
-whisperIndicatorEnabledCheckbox:SetChecked(true); whisperIndicatorEnabledCheckbox:Hide()
+whisperIndicatorEnabledCheckbox:SetChecked(false); whisperIndicatorEnabledCheckbox:Hide()
 local minimapBtnCheckbox=CreateFrame("CheckButton","MidnightQoLMinimapBtnCheckbox",mainFrame,"UICheckButtonTemplate")
-minimapBtnCheckbox:SetChecked(true); minimapBtnCheckbox:Hide()
+minimapBtnCheckbox:SetChecked(true); minimapBtnCheckbox:Hide()  -- minimap button stays on by default
 minimapBtnCheckbox:SetScript("OnClick",function(self)
     local show=self:GetChecked()
     if BuffAlertDB then BuffAlertDB.minimapBtnShown=show end
     if show then minimapBtn:Show() else minimapBtn:Hide() end
 end)
 local resourceBarsEnabledCheckbox=CreateFrame("CheckButton","MidnightQoLResourceBarsEnabledCheckbox",mainFrame,"UICheckButtonTemplate")
-resourceBarsEnabledCheckbox:SetChecked(true); resourceBarsEnabledCheckbox:Hide()
+resourceBarsEnabledCheckbox:SetChecked(false); resourceBarsEnabledCheckbox:Hide()
 API.buffAlertEnabledCheckbox        = buffAlertEnabledCheckbox
 API.whisperIndicatorEnabledCheckbox = whisperIndicatorEnabledCheckbox
 API.minimapBtnCheckbox              = minimapBtnCheckbox
@@ -654,7 +668,7 @@ end)
 -- Lets you copy layout/alert settings from any saved character spec into the
 -- current spec profile, or into any other spec profile.
 local profilesFrame = CreateFrame("Frame","MidnightQoLProfilesFrame",UIParent)
-profilesFrame:SetSize(660,500); profilesFrame:Hide()
+profilesFrame:SetSize(780,500); profilesFrame:Hide()
 
 do
     local LABEL_COLOR   = "|cFFFFD700"
@@ -942,9 +956,16 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
                 battlerezEnabled=false,
                 bagUpgradeEnabled=false,
                 sellConfirmEnabled=false,
+                expBarEnabled=false,
+                repBarEnabled=false,
+                alsEnabled=false,
+                wowSettings={},
                 cdMismatchSuppressed=false,
                 uiFadeNameplates=100,uiFadeMinimap=100,uiFadeUnitFrames=100,uiFadeActionBars=100,
             }
+            -- Also zero out Castbar on first run so its own DB starts disabled
+            CastbarDB = CastbarDB or {}
+            CastbarDB.enabled = false
         else
             if not BuffAlertDB.specProfiles then BuffAlertDB.specProfiles={} end
             if isUpdate then
@@ -953,12 +974,18 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
                 local newKeys = {
                     bagUpgradeEnabled=false,
                     sellConfirmEnabled=false,
+                    expBarEnabled=false,
+                    repBarEnabled=false,
+                    alsEnabled=false,
                     expBarHideAtMax=true,
                     uiFadeActionBars=100,
                 }
                 for k,v in pairs(newKeys) do
                     if BuffAlertDB[k] == nil then BuffAlertDB[k] = v end
                 end
+                -- Castbar uses its own DB — default enabled to false if newly added
+                CastbarDB = CastbarDB or {}
+                if CastbarDB.enabled == nil then CastbarDB.enabled = false end
                 BuffAlertDB.dbVersion = CURRENT_VERSION
             end
         end
@@ -966,10 +993,10 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
         API.playerClass   = select(2,UnitClass("player")) or "UNKNOWN"
         API.currentSpecID = GetSpecializationInfo(GetSpecialization()) or 0
 
-        buffAlertEnabledCheckbox:SetChecked(BuffAlertDB.buffDebuffAlertsEnabled~=false)
-        whisperIndicatorEnabledCheckbox:SetChecked(BuffAlertDB.whisperIndicatorEnabled~=false)
+        buffAlertEnabledCheckbox:SetChecked(BuffAlertDB.buffDebuffAlertsEnabled==true)
+        whisperIndicatorEnabledCheckbox:SetChecked(BuffAlertDB.whisperIndicatorEnabled==true)
         minimapBtnCheckbox:SetChecked(BuffAlertDB.minimapBtnShown~=false)
-        resourceBarsEnabledCheckbox:SetChecked(BuffAlertDB.resourceBarsEnabled~=false)
+        resourceBarsEnabledCheckbox:SetChecked(BuffAlertDB.resourceBarsEnabled==true)
         UpdateMinimapPos(BuffAlertDB.minimapAngle or 225,BuffAlertDB.minimapRadius or 80)
         if BuffAlertDB.minimapBtnShown==false then minimapBtn:Hide() end
         if BuffAlertDB.mainFramePos then
@@ -990,17 +1017,38 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
 
         -- Register Profiles tab after all sub-addons have loaded
         if API._profilesFrameReady then
-            RegisterTab("Profiles", API._profilesFrame, nil, 90, nil, 5)
+            RegisterTab("Profiles", API._profilesFrame, nil, 90, nil, 6)
         end
 
-        -- Show setup guide automatically on first install or after an update
-        if isFirstRun or isUpdate then
+        -- Show setup guide automatically on first install, after an update,
+        -- or whenever every module is currently turned off (nothing is active).
+        local function AllModulesOff()
+            local db = BuffAlertDB
+            if not db then return true end
+            return not db.buffDebuffAlertsEnabled
+               and not db.whisperIndicatorEnabled
+               and not db.resourceBarsEnabled
+               and not db.pullTimerEnabled
+               and not db.breakTimerEnabled
+               and not db.poisonAlertEnabled
+               and not db.raidbuffCheckEnabled
+               and not db.battlerezEnabled
+               and not db.bagUpgradeEnabled
+               and not db.sellConfirmEnabled
+               and not db.expBarEnabled
+               and not db.repBarEnabled
+               and not db.alsEnabled
+               and (not CastbarDB or not CastbarDB.enabled)
+        end
+
+        if isFirstRun or isUpdate or AllModulesOff() then
             C_Timer.After(1, function()
-                local verb = isFirstRun and "installed" or "updated to v"..CURRENT_VERSION
-                print("|cFF00CCFF[MidnightQoL]|r "..verb.." — all modules are |cFFFFD700off by default|r. Open the Setup Guide to enable what you need.")
+                local verb = isFirstRun and "installed"
+                          or isUpdate   and ("updated to v"..CURRENT_VERSION)
+                          or "ready"
+                print("|cFF00CCFF[MidnightQoL]|r "..verb.." — all modules are |cFFFFD700off|r. Open the Setup Guide to enable what you need.")
                 if setupPanel then
                     setupPanel:Show()
-                    -- Also open main window so the player can see the tabs
                     mainFrame:Show()
                     if tabButtons[1] then ActivateTabByIndex(1) end
                 end
@@ -1040,8 +1088,13 @@ SLASH_MQLDEBUG1="/mqldebug"
 SlashCmdList["MQLDEBUG"]=function()
     API.DEBUG = not API.DEBUG
     if BuffAlertDB then BuffAlertDB.debugEnabled = API.DEBUG end
-    print("|cFF00FF00[MidnightQoL]|r Debug mode " .. (API.DEBUG and "|cFFFFFF00ENABLED|r" or "|cFFAAAAAAdisabled|r"))
-    -- Sync UI checkbox if open
+    if API.DEBUG then
+        if API.EnableErrorLog then API.EnableErrorLog() end
+        print("|cFF00FF00[MidnightQoL]|r Debug mode |cFFFFFF00ENABLED|r — errors will be saved to SavedVariables on logout")
+    else
+        if API.DisableErrorLog then API.DisableErrorLog() end
+        print("|cFF00FF00[MidnightQoL]|r Debug mode |cFFAAAAAAdisabled|r")
+    end
     if _G["CSGenDebugCheck"] then _G["CSGenDebugCheck"]:SetChecked(API.DEBUG) end
 end
 
@@ -1079,3 +1132,51 @@ SlashCmdList["MQLAURAS"]=function()
     end
     print("|cFF00CCFF[MidnightQoL Aura Dump]|r ----------")
 end
+
+-- ── Error log to file ─────────────────────────────────────────────────────────
+-- When debug mode is enabled, captures all Lua errors into BuffAlertDB.errorLog
+-- which is written to disk in SavedVariables on logout.
+-- Read the log at: WTF/Account/<name>/SavedVariables/MidnightQoL.lua
+
+local _origErrHandler = geterrorhandler()
+
+local function MQLErrorHandler(err)
+    if API.DEBUG then
+        local entry = date("%H:%M:%S") .. " " .. tostring(err)
+        _errorLog[#_errorLog + 1] = entry
+    end
+    if _origErrHandler then _origErrHandler(err) end
+end
+
+local function EnableErrorLog()
+    -- Clear and add a session marker so entries are easy to find in the file
+    for i = #_errorLog, 1, -1 do _errorLog[i] = nil end
+    _errorLog[1] = date("%Y-%m-%d %H:%M:%S") .. " ===== Debug session started ====="
+    seterrorhandler(MQLErrorHandler)
+    API.Debug("[MidnightQoL] Error logging to SavedVariables enabled")
+end
+
+local function DisableErrorLog()
+    seterrorhandler(_origErrHandler)
+    API.Debug("[MidnightQoL] Error logging disabled")
+end
+
+API.EnableErrorLog  = EnableErrorLog
+API.DisableErrorLog = DisableErrorLog
+
+-- Save log on logout
+local errLogFrame = CreateFrame("Frame")
+errLogFrame:RegisterEvent("PLAYER_LOGOUT")
+errLogFrame:SetScript("OnEvent", function()
+    if BuffAlertDB then
+        BuffAlertDB.errorLog = (#_errorLog > 0) and _errorLog or nil
+    end
+end)
+
+-- Auto-enable if debug was already on from last session
+errLogFrame:RegisterEvent("PLAYER_LOGIN")
+errLogFrame:HookScript("OnEvent", function(self, event)
+    if event == "PLAYER_LOGIN" and API.DEBUG then
+        EnableErrorLog()
+    end
+end)

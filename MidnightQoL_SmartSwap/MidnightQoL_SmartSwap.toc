@@ -1,0 +1,8 @@
+## Interface: 120001
+## Title: Midnight QoL — SmartSwap
+## Notes: Automatic layout, talent loadout, and equipment set switching based on activity type (Raid/Dungeon/BG/Arena) and spec. Includes per-loadout layout and gear rules.
+## Author: Rogus
+## Version: 2.2
+## Dependencies: MidnightQoL
+
+SmartSwap.lua

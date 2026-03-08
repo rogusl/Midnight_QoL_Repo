@@ -14,7 +14,7 @@ local NUM_BAG_FRAMES = NUM_TOTAL_BAG_FRAMES or NUM_CONTAINER_FRAMES or 13
 -- ── DB helper ─────────────────────────────────────────────────────────────────
 local function IsEnabled()
     if not BuffAlertDB then return false end
-    if BuffAlertDB.bagUpgradeEnabled == nil then return true end
+    if BuffAlertDB.bagUpgradeEnabled == nil then return false end
     return BuffAlertDB.bagUpgradeEnabled
 end
 

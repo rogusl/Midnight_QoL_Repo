@@ -9,7 +9,7 @@ local API = MidnightQoLAPI
 
 -- ── General tab content frame ─────────────────────────────────────────────────
 local generalFrame = CreateFrame("Frame","MidnightQoLGeneralFrame",UIParent)
-generalFrame:SetSize(620,600); generalFrame:Hide()
+generalFrame:SetSize(760,600); generalFrame:Hide()
 
 -- ── Helper ────────────────────────────────────────────────────────────────────
 local function MakeCheck(name, parent, labelText, anchorFrame, offsetY)
@@ -113,7 +113,12 @@ if debugLbl then debugLbl:SetText("Debug Mode  |cFFAAAAAA(/mqldebug)|r") end
 debugCheck:SetScript("OnClick", function(self)
     API.DEBUG = self:GetChecked()
     if BuffAlertDB then BuffAlertDB.debugEnabled = API.DEBUG end
-    print("|cFF00FF00[MidnightQoL]|r Debug mode " .. (API.DEBUG and "|cFFFFFF00ENABLED|r" or "|cFFAAAAAAdisabled|r"))
+    if API.DEBUG then
+        if API.EnableErrorLog then API.EnableErrorLog() end
+    else
+        if API.DisableErrorLog then API.DisableErrorLog() end
+    end
+    print("|cFF00FF00[MidnightQoL]|r Debug mode " .. (API.DEBUG and "|cFFFFFF00ENABLED|r — errors will be saved to SavedVariables on logout" or "|cFFAAAAAAdisabled|r"))
 end)
 
 -- Bag Upgrade Indicator toggle
@@ -267,11 +272,15 @@ modulesDesc:SetText("Show or hide tabs in the configuration window.")
 modulesDesc:SetTextColor(0.6,0.6,0.6)
 
 -- Each entry: { tab label, DB-friendly key, display label }
+-- General is always shown. Everything else can be toggled off.
 local MODULE_TABS = {
-    { label="Layouts",   key="Layouts",   display="Layouts"   },
     { label="Alerts",    key="Alerts",    display="Alerts"    },
+    { label="SmartSwap", key="SmartSwap", display="SmartSwap" },
+    { label="Whisper",   key="Whisper",   display="Whisper"   },
     { label="Resources", key="Resources", display="Resources" },
+    { label="Keystones", key="Keystones", display="Keystones" },
     { label="Castbar",   key="Castbar",   display="Castbar"   },
+    { label="Defaults",  key="Defaults",  display="Defaults"  },
     { label="Profiles",  key="Profiles",  display="Profiles"  },
 }
 

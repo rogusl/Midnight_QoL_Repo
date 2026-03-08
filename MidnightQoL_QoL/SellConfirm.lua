@@ -16,7 +16,7 @@ local API = MidnightQoLAPI
 -- ── DB helper ─────────────────────────────────────────────────────────────────
 local function IsEnabled()
     if not BuffAlertDB then return false end
-    if BuffAlertDB.sellConfirmEnabled == nil then return true end
+    if BuffAlertDB.sellConfirmEnabled == nil then return false end
     return BuffAlertDB.sellConfirmEnabled
 end
 

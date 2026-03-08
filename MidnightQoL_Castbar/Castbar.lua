@@ -9,7 +9,7 @@ local API = MidnightQoLAPI
 if not API then return end
 
 local DEFAULTS = {
-    enabled           = true,
+    enabled           = false,
     hideBlizzard      = true,
     x                 = 0,
     y                 = -220,
@@ -183,6 +183,7 @@ f.delay      = 0
 local function StartCast(name, startMs, endMs, notInterrupt, isEmpowered)
     local db = GetDB()
     if not db.enabled then return end
+    f._orphanCheck = 0
     f.casting    = true
     f.channeling = false
     f.startTime  = startMs / 1000
@@ -211,6 +212,7 @@ end
 local function StartChannel(name, startMs, endMs, notInterrupt, spellID)
     local db = GetDB()
     if not db.enabled then return end
+    f._orphanCheck = 0
     f.casting    = false
     f.channeling = true
     f.startTime  = startMs / 1000
@@ -277,6 +279,15 @@ f:SetScript("OnUpdate", function(self, elapsed)
         local total = self.endTime - self.startTime
         if total > 0 then self.bar:SetValue(remaining / total) end
         if db.showTimer then self.timerStr:SetText(string.format("%.1f", remaining)) end
+        -- Safety: orphan channel check
+        self._orphanCheck = (self._orphanCheck or 0) + elapsed
+        if self._orphanCheck >= 0.1 then
+            self._orphanCheck = 0
+            if not UnitChannelInfo("player") then
+                StopCast(false)
+                return
+            end
+        end
 
     elseif self.casting then
         local total = (self.endTime - self.startTime) + self.delay
@@ -293,6 +304,16 @@ f:SetScript("OnUpdate", function(self, elapsed)
             local w = self:GetWidth() * frac
             self.latTex:SetWidth(math.max(1, w))
             self.latTex:Show()
+        end
+        -- Safety: quest/interact casts sometimes never fire STOP or SUCCEEDED.
+        -- If the bar thinks we're casting but the game has no cast, hide it.
+        self._orphanCheck = (self._orphanCheck or 0) + elapsed
+        if self._orphanCheck >= 0.1 then
+            self._orphanCheck = 0
+            if not UnitCastingInfo("player") then
+                StopCast(false)
+                return
+            end
         end
     end
 
@@ -358,6 +379,7 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
             local targets = {
                 "CastingBarFrame",
                 "PlayerCastingBarFrame",
+                "OverlayPlayerCastingBarFrame",
                 "OverrideActionBarCastBar",
                 "PetCastingBarFrame",
             }
@@ -366,13 +388,11 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
                 if frame then
                     pcall(function()
                         frame:UnregisterAllEvents()
-                        frame:Hide()
-                        frame:SetScript("OnShow", function(s) s:Hide() end)
-                        if frame.UnregisterEvent then
-                            frame:UnregisterEvent("UNIT_SPELLCAST_START")
-                            frame:UnregisterEvent("UNIT_SPELLCAST_CHANNEL_START")
-                            frame:UnregisterEvent("UNIT_SPELLCAST_EMPOWER_START")
-                        end
+                        -- Use alpha to hide rather than :Hide() so we don't
+                        -- trigger Blizzard's OnShow/OnHide teardown paths that
+                        -- iterate protected animation tables (forbidden table error).
+                        frame:SetAlpha(0)
+                        frame:SetScript("OnShow", function(s) s:SetAlpha(0) end)
                     end)
                 end
             end
@@ -397,10 +417,28 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
         if name then StartChannel(name, startTime, endTime, notInterrupt, spellID) end
 
     elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_EMPOWER_STOP" then
-        StopCast(false)
+        -- UNIT_SPELLCAST_STOP fires for pushback (game pauses cast then restarts),
+        -- for clean finishes (before SUCCEEDED), AND for silently-failed casts
+        -- (mount blocked, facing, range, moving, etc.) that never get FAILED/INTERRUPTED.
+        --
+        -- Guard: if the cast GUID still matches what the bar is showing, a new
+        -- UNIT_SPELLCAST_START hasn't arrived yet — this is a real stop, not pushback.
+        -- We defer by one frame so a same-frame START can override us.
+        local stoppedGUID = castGUID
+        C_Timer.After(0, function()
+            local currentName, _, currentGUID = UnitCastingInfo("player")
+            -- If the player has started a different/new cast in this frame, leave the bar alone.
+            if currentName and currentGUID and currentGUID ~= stoppedGUID then return end
+            -- Otherwise (no cast, or same cast still listed) → stop the bar.
+            StopCast(false)
+        end)
 
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-        StopCast(false)
+        local stoppedGUID = castGUID
+        C_Timer.After(0, function()
+            local currentName = UnitChannelInfo("player")
+            if not currentName then StopCast(false) end
+        end)
 
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         StopCast(false)
@@ -412,10 +450,12 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
         f.casting = false; f.channeling = false; f:Hide()
 
     elseif event == "UNIT_SPELLCAST_DELAYED" then
-        local name, _, _, startTime, endTime = UnitCastingInfo("player")
-        if name and f:IsShown() then
-            f.endTime = endTime / 1000
-            f.delay   = (startTime / 1000) - f.startTime
+        -- Pushback: WoW fires STOP then START around the delay, but there's a
+        -- 1-frame gap. Re-read cast info and restart the bar immediately so it
+        -- never disappears during the pushback.
+        local name, _, _, startTime, endTime, _, _, notInterrupt = UnitCastingInfo("player")
+        if name then
+            StartCast(name, startTime, endTime, notInterrupt, false)
         end
 
     elseif event == "UNIT_SPELLCAST_CHANNEL_UPDATE" then

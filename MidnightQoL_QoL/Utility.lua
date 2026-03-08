@@ -10,6 +10,16 @@
 
 local API = MidnightQoLAPI
 
+-- LibOpenRaid-1.0: resolved after PLAYER_LOGIN so LibStub is guaranteed initialised.
+-- All access goes through this local; nil-checked at every call site.
+local openRaidLib = nil
+local function GetOpenRaidLib()
+    if not openRaidLib and LibStub then
+        openRaidLib = LibStub:GetLibrary("LibOpenRaid-1.0", true)
+    end
+    return openRaidLib
+end
+
 -- ── DB helpers ────────────────────────────────────────────────────────────────
 local function GetDB()
     if not BuffAlertDB then return {} end
@@ -38,12 +48,12 @@ local OFFENSIVE_POISONS = { [2823]=true, [8679]=true, [315584]=true }
 
 local function GetAppliedPoisons()
     local found = {}
-    -- Poisons show as buffs on the player with keywords
+    -- C_UnitAuras.GetBuffDataByIndex replaces the removed UnitBuff API (TWW 11.0+)
     local i = 1
     while true do
-        local name, _, _, _, _, _, _, _, _, spellId = UnitBuff("player", i)
-        if not name then break end
-        if spellId and POISON_IDS[spellId] then found[spellId] = true end
+        local aura = C_UnitAuras.GetBuffDataByIndex("player", i)
+        if not aura then break end
+        if aura.spellId and POISON_IDS[aura.spellId] then found[aura.spellId] = true end
         i = i + 1
     end
     return found
@@ -94,7 +104,7 @@ local raidBuffHUD = CreateFrame("Frame", "MidnightQoLRaidBuffHUD", UIParent, "Ba
 raidBuffHUD:SetPoint("CENTER", UIParent, "CENTER", 0, 200)
 raidBuffHUD:SetFrameStrata("HIGH")
 raidBuffHUD:SetMovable(true); raidBuffHUD:EnableMouse(true); raidBuffHUD:RegisterForDrag("LeftButton")
-raidBuffHUD:SetScript("OnDragStart", function(self) self:StartMoving() end)
+raidBuffHUD:SetScript("OnDragStart", function(self) if API.IsLayoutMode and API.IsLayoutMode() then self:StartMoving() end end)
 raidBuffHUD:SetScript("OnDragStop",  function(self) self:StopMovingOrSizing()
     if BuffAlertDB then BuffAlertDB.raidBuffHUDX = self:GetLeft(); BuffAlertDB.raidBuffHUDY = self:GetTop() end
 end)
@@ -164,13 +174,9 @@ local function ShowRaidBuffHUD(missing)
             BuffAlertDB.raidBuffHUDX, BuffAlertDB.raidBuffHUDY)
     end
 
+    raidBuffHUD:SetAlpha(1)
     raidBuffHUD:Show()
-    -- Auto-hide after 10 seconds
-    raidBuffHideTimer = C_Timer.NewTimer(10, function()
-        raidBuffHideTimer = nil
-        UIFrameFadeOut(raidBuffHUD, 0.5, 1, 0)
-        C_Timer.After(0.5, function() raidBuffHUD:Hide(); raidBuffHUD:SetAlpha(1) end)
-    end)
+    -- No auto-hide: frame stays visible until all buffs are present or group disbands
 end
 
 local function CheckRaidBuffs()
@@ -178,7 +184,23 @@ local function CheckRaidBuffs()
     if not db.raidbuffCheckEnabled then return end
     if not IsInGroup() then return end
 
+    -- Build the set of classes present in the group.
+    -- Prefer LibOpenRaid unit info (cross-realm safe, includes late joiners that
+    -- UnitClass() can return nil for before their unit token is populated).
     local classesPresent = {}
+    local lib = GetOpenRaidLib()
+    if lib then
+        local allInfo = lib.GetAllUnitsInfo()
+        if allInfo then
+            for _, unitInfo in pairs(allInfo) do
+                if unitInfo.class and unitInfo.class ~= "" then
+                    classesPresent[unitInfo.class] = true
+                end
+            end
+        end
+    end
+    -- Always fall back / supplement with direct UnitClass calls so the check
+    -- works even if LibOpenRaid hasn't received unit info yet (e.g. fresh login).
     local numMembers = GetNumGroupMembers()
     for i = 1, numMembers do
         local unit = IsInRaid() and ("raid"..i) or ("party"..i)
@@ -197,9 +219,9 @@ local function CheckRaidBuffs()
             local found = false
             local i = 1
             while true do
-                local name, _, _, _, _, _, _, _, _, spellId = UnitBuff("player", i)
-                if not name then break end
-                if spellId == buffDef.spellId then found = true; break end
+                local aura = C_UnitAuras.GetBuffDataByIndex("player", i)
+                if not aura then break end
+                if aura.spellId == buffDef.spellId then found = true; break end
                 i = i + 1
             end
             if not found then missing[#missing+1] = buffDef end
@@ -216,87 +238,205 @@ end
 --         Reincarnation (21169 — self only, different mechanic, skip),
 --         Eternal Guardian (196718 — DK talent)
 -- ============================================================
-local BREZ_SPELLS = { 20484, 20707, 61999, 196718 }
+-- Spell IDs that constitute a combat rez, keyed by class for display label.
+-- 20484  = Rebirth        (Druid)
+-- 20707  = Soulstone Res  (Warlock)
+-- 61999  = Raise Ally     (Death Knight)
+-- 265116 = Reawaken       (Evoker — added in Dragonflight)
+local BREZ_SPELL_INFO = {
+    [20484]  = "Rebirth",
+    [20707]  = "Soulstone",
+    [61999]  = "Raise Ally",
+    [265116] = "Reawaken",
+}
 
-local brezFrame = CreateFrame("Frame", "MidnightQoLBrezFrame", UIParent, "BackdropTemplate")
-brezFrame:SetSize(200, 28)
+
+-- Scan group for combat rez availability via LibOpenRaid + local spellbook.
+local function GetRaidBrezStatus()
+    local bestCharges = 0
+    local bestMax     = 1
+    local soonestCD   = math.huge
+
+    local prefix = IsInRaid() and "raid" or "party"
+    local count  = IsInRaid() and GetNumGroupMembers() or GetNumSubgroupMembers()
+    local units  = {"player"}
+    for i = 1, count do units[#units+1] = prefix..i end
+
+    local lib = GetOpenRaidLib()
+
+    for _, unit in ipairs(units) do
+        if UnitExists(unit) then
+            if UnitIsUnit(unit, "player") then
+                for spellId in pairs(BREZ_SPELL_INFO) do
+                    if IsSpellKnown(spellId) then
+                        local ci = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(spellId)
+                        if ci then
+                            local ch  = ci.currentCharges or 0
+                            local mx  = ci.maxCharges or 1
+                            local rem = 0
+                            if ch < mx and ci.cooldownStartTime and ci.cooldownDuration then
+                                rem = math.max(0, (ci.cooldownStartTime + ci.cooldownDuration) - GetTime())
+                            end
+                            if ch > bestCharges then bestCharges = ch; bestMax = mx end
+                            if rem > 0 and rem < soonestCD then soonestCD = rem end
+                        end
+                    end
+                end
+            elseif lib then
+                for spellId in pairs(BREZ_SPELL_INFO) do
+                    local cooldownInfo = lib.GetUnitCooldownInfo(unit, spellId)
+                    if cooldownInfo then
+                        local isReady, _, timeLeft, charges = lib.GetCooldownStatusFromCooldownInfo(cooldownInfo)
+                        local ch  = charges or (isReady and 1 or 0)
+                        local rem = (not isReady and timeLeft) and math.max(0, timeLeft) or 0
+                        if ch > bestCharges then bestCharges = ch; bestMax = 1 end
+                        if rem > 0 and rem < soonestCD then soonestCD = rem end
+                    end
+                end
+            end
+        end
+    end
+
+    -- Nobody in the group has a brez spell at all
+    if bestCharges == 0 and soonestCD == math.huge then
+        return nil, nil, nil
+    end
+    local remaining = (soonestCD < math.huge) and soonestCD or 0
+    return bestCharges, bestMax, remaining
+end
+
+-- ── Battle Rez tracker ───────────────────────────────────────────────────────
+-- Icon + stack counter + timer until next charge.
+-- Spell 26994 = Blizzard shared combat rez charge pool (most reliable source).
+-- Fallback: scan group via LibOpenRaid / local spellbook.
+
+-- Icon texture: use the Rebirth spell icon (spell ID 20484) as the generic brez icon.
+local BREZ_ICON = 136080  -- Interface/Icons/Spell_Nature_Reincarnation
+
+local brezFrame = CreateFrame("Frame", "MidnightQoLBrezFrame", UIParent)
+brezFrame:SetSize(52, 66)
 brezFrame:SetPoint("CENTER", UIParent, "CENTER", 0, -160)
 brezFrame:SetFrameStrata("MEDIUM")
 brezFrame:SetMovable(true)
 brezFrame:EnableMouse(true)
 brezFrame:RegisterForDrag("LeftButton")
-brezFrame:SetScript("OnDragStart", function(self) if not InCombatLockdown() then self:StartMoving() end end)
-brezFrame:SetScript("OnDragStop",  function(self) self:StopMovingOrSizing()
+brezFrame:SetScript("OnDragStart", function(self)
+    if (API.IsLayoutMode and API.IsLayoutMode()) and not InCombatLockdown() then self:StartMoving() end
+end)
+brezFrame:SetScript("OnDragStop", function(self)
+    self:StopMovingOrSizing()
     if BuffAlertDB then BuffAlertDB.brezX = self:GetLeft(); BuffAlertDB.brezY = self:GetTop() end
 end)
-brezFrame:SetBackdrop({ bgFile = "Interface/Buttons/WHITE8x8",
-    edgeFile = "Interface/DialogFrame/UI-DialogBox-Border", edgeSize = 10,
-    insets = { left=3, right=3, top=3, bottom=3 } })
-brezFrame:SetBackdropColor(0, 0, 0, 0.75)
-brezFrame:SetBackdropBorderColor(0.3, 0.3, 0.3, 0.8)
 brezFrame:Hide()
 
-local brezText = brezFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-brezText:SetPoint("CENTER", brezFrame, "CENTER", 0, 0)
-brezText:SetText("")
+-- Icon background (dark square)
+local brezBg = brezFrame:CreateTexture(nil, "BACKGROUND")
+brezBg:SetAllPoints()
+brezBg:SetColorTexture(0, 0, 0, 0.6)
 
-local function GetBrezStatus()
-    for _, spellId in ipairs(BREZ_SPELLS) do
-        -- Check if any group member has this spell known (not just player)
-        -- We check the cooldown for all raid members who could have it
-        local cdInfo = C_Spell.GetSpellCooldown and C_Spell.GetSpellCooldown(spellId)
-        if cdInfo then
-            local charges, maxCharges = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(spellId) or 0, 1
-            if charges then
-                return charges, maxCharges, cdInfo.startTime and (cdInfo.startTime + cdInfo.duration - GetTime()) or 0
-            end
-        end
-    end
-    return 0, 1, 0
-end
+-- Brez spell icon
+local brezIcon = brezFrame:CreateTexture(nil, "ARTWORK")
+brezIcon:SetPoint("TOPLEFT", brezFrame, "TOPLEFT", 2, -2)
+brezIcon:SetSize(48, 48)
+brezIcon:SetTexture(BREZ_ICON)
+brezIcon:SetTexCoord(0.08, 0.92, 0.08, 0.92)  -- trim bliz icon border
+
+-- Stack counter (top-right corner of icon)
+local brezCount = brezFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+brezCount:SetPoint("BOTTOMRIGHT", brezIcon, "BOTTOMRIGHT", 2, 2)
+brezCount:SetTextColor(1, 1, 1)
+brezCount:SetShadowColor(0, 0, 0, 1)
+brezCount:SetShadowOffset(1, -1)
+
+-- Timer text (below icon)
+local brezTimer = brezFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+brezTimer:SetPoint("BOTTOM", brezFrame, "BOTTOM", 0, 2)
+brezTimer:SetPoint("LEFT", brezFrame, "LEFT", 0, 0)
+brezTimer:SetPoint("RIGHT", brezFrame, "RIGHT", 0, 0)
+brezTimer:SetJustifyH("CENTER")
+brezTimer:SetTextColor(0.8, 0.8, 0.8)
+
+-- Thin border
+local brezBorder = CreateFrame("Frame", nil, brezFrame, "BackdropTemplate")
+brezBorder:SetAllPoints()
+brezBorder:SetBackdrop({ edgeFile = "Interface/Buttons/WHITE8x8", edgeSize = 1 })
+brezBorder:SetBackdropBorderColor(0.25, 0.25, 0.25, 0.9)
 
 local brezTicker = nil
 
 local function UpdateBrezFrame()
     local db = GetDB()
-    if not db.battlerezEnabled or not IsInGroup() then
+    if not db.battlerezEnabled then
+        brezFrame:Hide(); return
+    end
+    if not IsInGroup() and not UnitAffectingCombat("player") then
         brezFrame:Hide(); return
     end
 
-    -- Find which brez spell the player has
-    local mySpellId = nil
-    for _, sid in ipairs(BREZ_SPELLS) do
-        if IsSpellKnown(sid) then mySpellId = sid; break end
-    end
-
-    if not mySpellId then brezFrame:Hide(); return end
-
-    local chargeInfo = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(mySpellId)
-    if not chargeInfo then brezFrame:Hide(); return end
-
-    local charges    = chargeInfo.currentCharges or 0
-    local maxCharges = chargeInfo.maxCharges or 1
-    local remaining  = 0
-    if charges < maxCharges and chargeInfo.cooldownStartTime and chargeInfo.cooldownDuration then
-        remaining = (chargeInfo.cooldownStartTime + chargeInfo.cooldownDuration) - GetTime()
-    end
-
-    brezFrame:Show()
-    local spellName = C_Spell.GetSpellName and C_Spell.GetSpellName(mySpellId) or "Battle Rez"
-    local chargeStr = "|cFFFFD700" .. charges .. "/" .. maxCharges .. "|r"
-    if remaining > 0 and charges < maxCharges then
-        local mins = math.floor(remaining / 60)
-        local secs = math.floor(remaining % 60)
-        local timeStr = mins > 0 and string.format("%dm%ds", mins, secs) or string.format("%ds", secs)
-        brezText:SetText(spellName .. "  " .. chargeStr .. "  |cFFAAAAAA" .. timeStr .. "|r")
+    -- Try the Blizzard shared combat rez pool first (spell 26994)
+    local charges, maxCharges, remaining
+    local sharedCI = C_Spell.GetSpellCharges and C_Spell.GetSpellCharges(26994)
+    if sharedCI and sharedCI.maxCharges and sharedCI.maxCharges > 0 then
+        charges    = sharedCI.currentCharges or 0
+        maxCharges = sharedCI.maxCharges
+        remaining  = 0
+        if charges < maxCharges and sharedCI.cooldownStartTime and sharedCI.cooldownDuration then
+            remaining = math.max(0, (sharedCI.cooldownStartTime + sharedCI.cooldownDuration) - GetTime())
+        end
     else
-        brezText:SetText(spellName .. "  " .. chargeStr)
+        -- Fallback: scan group via LibOpenRaid / local spellbook
+        local c, mx, rem = GetRaidBrezStatus()
+        charges    = c
+        maxCharges = mx
+        remaining  = rem
+    end
+
+    -- Hide if nobody in the group has a brez spell
+    if not charges and not maxCharges then
+        brezFrame:Hide(); return
     end
 
     -- Restore saved position
     if BuffAlertDB and BuffAlertDB.brezX and BuffAlertDB.brezY then
         brezFrame:ClearAllPoints()
         brezFrame:SetPoint("TOPLEFT", UIParent, "BOTTOMLEFT", BuffAlertDB.brezX, BuffAlertDB.brezY)
+    end
+
+    brezFrame:Show()
+
+    -- Stack counter: dim icon when 0 charges
+    charges    = charges    or 0
+    maxCharges = maxCharges or 1
+    remaining  = remaining  or 0
+
+    if charges == 0 then
+        brezIcon:SetVertexColor(0.4, 0.4, 0.4)
+        brezCount:SetTextColor(1, 0.3, 0.3)
+    else
+        brezIcon:SetVertexColor(1, 1, 1)
+        brezCount:SetTextColor(1, 1, 0)
+    end
+    brezCount:SetText(charges .. "/" .. maxCharges)
+
+    -- Timer: show countdown to next charge, hide if full
+    if remaining > 0 and charges < maxCharges then
+        local mins = math.floor(remaining / 60)
+        local secs = math.floor(remaining % 60)
+        if mins > 0 then
+            brezTimer:SetText(string.format("%d:%02d", mins, secs))
+        else
+            -- Pulse red when under 30s
+            if secs <= 30 then
+                brezTimer:SetTextColor(1, 0.4, 0.4)
+            else
+                brezTimer:SetTextColor(0.8, 0.8, 0.8)
+            end
+            brezTimer:SetText(secs .. "s")
+        end
+        brezTimer:Show()
+    else
+        brezTimer:SetText("")
+        brezTimer:Hide()
     end
 end
 
@@ -306,22 +446,68 @@ utilEvents:RegisterEvent("PLAYER_LOGIN")
 utilEvents:RegisterEvent("PLAYER_REGEN_DISABLED")  -- combat enter → poison check
 utilEvents:RegisterEvent("READY_CHECK")
 utilEvents:RegisterEvent("SPELL_UPDATE_COOLDOWN")
+utilEvents:RegisterEvent("SPELL_UPDATE_CHARGES")
 utilEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
 utilEvents:RegisterEvent("GROUP_ROSTER_UPDATE")
+utilEvents:RegisterEvent("UNIT_AURA")
+
+local raidBuffTicker = nil
 
 utilEvents:SetScript("OnEvent", function(self, event, unit, ...)
     local db = GetDB()
     if event == "PLAYER_LOGIN" then
         C_Timer.After(2, function()
             UpdateBrezFrame()
-            brezTicker = C_Timer.NewTicker(1, UpdateBrezFrame)
+            brezTicker     = C_Timer.NewTicker(1,  UpdateBrezFrame)
+            raidBuffTicker = C_Timer.NewTicker(5,  CheckRaidBuffs)
+
+            -- Register LibOpenRaid callbacks now that LibStub is fully initialised.
+            local lib = GetOpenRaidLib()
+            if lib then
+                -- When any unit in the group uses or refreshes a brez cooldown,
+                -- immediately update the tracker rather than waiting for the 1s ticker.
+                local MidnightQoLBrezCallbacks = {}
+                function MidnightQoLBrezCallbacks.OnCooldownUpdate(unitId, spellId)
+                    if BREZ_SPELL_INFO[spellId] then
+                        UpdateBrezFrame()
+                    end
+                end
+                function MidnightQoLBrezCallbacks.OnCooldownListUpdate()
+                    UpdateBrezFrame()
+                end
+                -- Unit death/rez affects brez charge availability display.
+                function MidnightQoLBrezCallbacks.OnUnitDeath()
+                    UpdateBrezFrame()
+                end
+                function MidnightQoLBrezCallbacks.OnUnitAlive()
+                    UpdateBrezFrame()
+                end
+                -- When unit info arrives (spec/class), re-run the buff check so we
+                -- catch classes that joined late or whose token was nil at roster update.
+                function MidnightQoLBrezCallbacks.OnUnitInfoUpdate()
+                    CheckRaidBuffs()
+                end
+
+                lib.RegisterCallback(MidnightQoLBrezCallbacks, "CooldownUpdate",    "OnCooldownUpdate")
+                lib.RegisterCallback(MidnightQoLBrezCallbacks, "CooldownListUpdate","OnCooldownListUpdate")
+                lib.RegisterCallback(MidnightQoLBrezCallbacks, "UnitDeath",         "OnUnitDeath")
+                lib.RegisterCallback(MidnightQoLBrezCallbacks, "UnitAlive",         "OnUnitAlive")
+                lib.RegisterCallback(MidnightQoLBrezCallbacks, "UnitInfoUpdate",    "OnUnitInfoUpdate")
+
+                -- Ask the group to broadcast their current data so we're not waiting
+                -- for the next natural update cycle.
+                lib.RequestAllData()
+            end
         end)
     elseif event == "PLAYER_REGEN_DISABLED" then
         C_Timer.After(0.5, CheckRoguePoisons)
     elseif event == "READY_CHECK" then
         C_Timer.After(0.3, CheckRaidBuffs)
-    elseif event == "SPELL_UPDATE_COOLDOWN" or event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
+    elseif event == "SPELL_UPDATE_COOLDOWN" or event == "SPELL_UPDATE_CHARGES" or event == "PLAYER_ENTERING_WORLD" or event == "GROUP_ROSTER_UPDATE" then
         UpdateBrezFrame()
+        CheckRaidBuffs()
+    elseif event == "UNIT_AURA" and unit == "player" then
+        CheckRaidBuffs()
     end
 end)
 

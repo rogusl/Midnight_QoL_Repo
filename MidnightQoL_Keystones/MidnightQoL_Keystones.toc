@@ -1,0 +1,10 @@
+## Interface: 120001
+## Title: Midnight QoL |cFF88CCFF Keystones|r
+## Notes: Auto-slots keystones, shows party keystones and season dungeons in the M+ tab. Requires MidnightQoL.
+## Author: Rogus
+## Version: 2.2
+## Dependencies: MidnightQoL
+## OptionalDeps: RaiderIO
+## X-Libs-Note: LibOpenRaid-1.0 is bundled in MidnightQoL/Libs — no separate install needed
+
+Keystones.lua

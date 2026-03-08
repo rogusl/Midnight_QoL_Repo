@@ -214,8 +214,10 @@ local SPEC_POWERS = {
 
 -- ── State ────────────────────────────────────────────────────────────────────
 local resourceBarsEnabled = true
-local MAX_BARS   = 2
+local MAX_BARS   = 6
+local HEALTH     = 99  -- fake power type: reads UnitHealth/UnitHealthMax
 local barConfigs = {}
+local barFrames  = {}
 local barFrames  = {}
 local roleUnitCache = {}
 
@@ -270,7 +272,10 @@ local function RefreshBar(i)
 
     local pt = cfg.powerType
     local cur, max
-    if pt == STAGGER then
+    if pt == HEALTH then
+        cur = UnitHealth(unit) or 0
+        max = UnitHealthMax(unit) or 1
+    elseif pt == STAGGER then
         cur = UnitStagger(unit) or 0
         max = UnitHealthMax(unit) or 1
     elseif pt == MAELSTROM_WEAPON then
@@ -305,13 +310,13 @@ local function RefreshBar(i)
             if UnitExists(u) then
                 local i2 = 1
                 while true do
-                    local name2, _, _, _, dur2, expTime2, _, _, _, spellId2 = UnitBuff(u, i2)
-                    if not name2 then break end
-                    if spellId2 == RENEWING_MIST_SPELL_ID then
+                    local aura2 = C_UnitAuras.GetAuraDataByIndex(u, i2, "HELPFUL")
+                    if not aura2 then break end
+                    if aura2.spellId == RENEWING_MIST_SPELL_ID then
                         count = count + 1
-                        if expTime2 and expTime2 > 0 and expTime2 < earliest then
-                            earliest = expTime2
-                            if dur2 and dur2 > 0 then rmDuration = dur2 end
+                        if aura2.expirationTime and aura2.expirationTime > 0 and aura2.expirationTime < earliest then
+                            earliest = aura2.expirationTime
+                            if aura2.duration and aura2.duration > 0 then rmDuration = aura2.duration end
                         end
                     end
                     i2 = i2 + 1
@@ -519,6 +524,7 @@ local function RebuildBars()
 end
 API.RebuildLiveBars               = RebuildBars
 API.barConfigs                    = barConfigs
+API.HEALTH                        = HEALTH
 API.MAELSTROM_WEAPON              = MAELSTROM_WEAPON
 API.MAELSTROM_WEAPON_SPELL_ID     = MAELSTROM_WEAPON_SPELL_ID
 API.MAELSTROM_WEAPON_SPELL_ID_OLD = MAELSTROM_WEAPON_SPELL_ID_OLD
@@ -562,6 +568,7 @@ end)
 -- ── Event Registry ───────────────────────────────────────────────────────────
 local Events = CreateFrame("Frame")
 Events:RegisterEvent("PLAYER_ENTERING_WORLD")
+Events:RegisterEvent("UNIT_HEALTH")
 Events:RegisterEvent("UNIT_POWER_UPDATE")
 Events:RegisterEvent("UNIT_MAXPOWER")
 Events:RegisterEvent("UNIT_AURA")           -- for Maelstrom Weapon stacks

@@ -9,7 +9,7 @@ local API = MidnightQoLAPI
 
 -- ── Defaults ──────────────────────────────────────────────────────────────────
 local DEFAULTS = {
-    repBarEnabled   = true,
+    repBarEnabled   = false,
     repBarWidth     = 600,
     repBarHeight    = 10,
     repBarX         = 0,
