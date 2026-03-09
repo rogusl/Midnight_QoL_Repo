@@ -3,9 +3,9 @@
 ## Notes: Visual/audio alerts for buffs, debuffs, and externals. Requires MidnightQoL.
 ## Author: Rogus
 <<<<<<< HEAD
-## Version: 2.2
+## Version: 1.0.38
 =======
-## Version: 1.0.37
+## Version: 1.0.38
 >>>>>>> ad93054fd28f5543fffd3cbbcaa94c2d4d3942fe
 ## SavedVariables: BuffAlertDB
 ## Dependencies: MidnightQoL

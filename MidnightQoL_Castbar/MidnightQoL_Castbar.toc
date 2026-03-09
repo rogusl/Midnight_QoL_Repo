@@ -3,9 +3,9 @@
 ## Notes: Player castbar replacement with per-state colors, channel ticks, GCD spark, latency zone, and interrupt flash.
 ## Author: Rogus
 <<<<<<< HEAD
-## Version: 2.2
+## Version: 1.0.38
 =======
-## Version: 1.0.37
+## Version: 1.0.38
 >>>>>>> ad93054fd28f5543fffd3cbbcaa94c2d4d3942fe
 ## Dependencies: MidnightQoL
 ## SavedVariables: CastbarDB
