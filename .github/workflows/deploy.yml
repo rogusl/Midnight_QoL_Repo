@@ -1,0 +1,54 @@
+name: Deploy Release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - 'v*' # This allows the workflow to trigger again when the tag is created
+
+jobs:
+  # --- JOB 1: Create the Tag ---
+  # This job runs on the push to the main branch
+  tag-creation:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Create New Tag
+        id: tag_action
+        uses: mathieudutour/github-tag-action@v6.2
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          default_bump: patch
+          tag_prefix: v
+
+  # --- JOB 2: Package and Release ---
+  # This job ONLY runs when a tag is pushed (either by you or by Job 1)
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run Packager
+        uses: BigWigsMods/packager@master
+        with:
+          # No need for -t or -w anymore! 
+          # Triggering on a tag push makes the packager default to 'Release' and use the Tag Name.
+          args: -g 12.0.1 -n "MidnightQoL_Suite-${{ github.ref_name }}"
+          pandoc: true
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
