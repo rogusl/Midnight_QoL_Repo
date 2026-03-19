@@ -265,12 +265,63 @@ end
 local function RefreshBar(i)
     local f = barFrames[i]
     local cfg = barConfigs[i]
-    if not f or not f:IsShown() or not cfg or not cfg.enabled then return end
+    if not f or not cfg or not cfg.enabled or not resourceBarsEnabled then return end
+    -- Note: we intentionally do NOT guard on f:IsShown() here so that a bar
+    -- hidden due to a missing resource can re-appear once the resource exists.
 
     local unit = ResolveUnit(cfg.unit)
-    if not UnitExists(unit) then return end
+    if not UnitExists(unit) then
+        f:Hide(); return
+    end
 
+    -- Hide if the unit doesn't actually have this resource.
+    -- Each pseudo-type has its own availability check; real power types use
+    -- UnitPowerMax — a max of 0 means the spec/class doesn't have it.
     local pt = cfg.powerType
+    do
+        local hasResource = true
+        if pt == HEALTH then
+            hasResource = (UnitHealthMax(unit) or 0) > 0
+        elseif pt == STAGGER then
+            -- Stagger only exists for Brewmaster monks
+            hasResource = UnitExists(unit) and (UnitStagger ~= nil)
+                and (select(2, UnitClass("player")) == "MONK")
+        elseif pt == MAELSTROM_WEAPON then
+            -- Enhancement Shaman buff — treat as unavailable if neither spell ID is known
+            hasResource = IsSpellKnown(MAELSTROM_WEAPON_SPELL_ID)
+                       or IsSpellKnown(MAELSTROM_WEAPON_SPELL_ID_OLD)
+        elseif pt == ICICLES then
+            hasResource = IsSpellKnown(ICICLES_SPELL_ID)
+        elseif pt == TIP_OF_SPEAR then
+            hasResource = IsSpellKnown(TIP_OF_SPEAR_SPELL_ID)
+        elseif pt == RENEWING_MIST then
+            hasResource = IsSpellKnown(RENEWING_MIST_SPELL_ID)
+        else
+            -- Standard power type: max of 0 means the spec doesn't have it
+            hasResource = (GetPowerMax(unit, pt) or 0) > 0
+        end
+        if not hasResource then
+            f:Hide(); return
+        end
+    end
+
+    -- Resource exists — make sure frame is visible (may have been hidden by a
+    -- previous RefreshBar call when the resource was temporarily unavailable).
+    if not f:IsShown() then
+        f:ClearAllPoints()
+        f:SetPoint("CENTER", UIParent, "CENTER", cfg.x or 0, cfg.y or -200)
+        -- Restore size — RebuildBars sets this, but it isn't re-run on the
+        -- polling path so we have to do it here to avoid a 1×1 invisible frame.
+        if cfg.isPip then
+            -- pip size is computed by RebuildBars; just use last known frame size
+            -- (it will be correct unless the spec changed, which triggers RebuildBars anyway)
+        else
+            f:SetSize(cfg.w or 200, cfg.h or 20)
+            f.bar:SetAllPoints(f)
+        end
+        f:Show()
+    end
+
     local cur, max
     if pt == HEALTH then
         cur = UnitHealth(unit) or 0
@@ -308,18 +359,16 @@ local function RefreshBar(i)
         for gi = 1, numMembers do units[#units+1] = prefix .. gi end
         for _, u in ipairs(units) do
             if UnitExists(u) then
-                local i2 = 1
-                while true do
-                    local aura2 = C_UnitAuras.GetAuraDataByIndex(u, i2, "HELPFUL")
-                    if not aura2 then break end
-                    if aura2.spellId == RENEWING_MIST_SPELL_ID then
-                        count = count + 1
-                        if aura2.expirationTime and aura2.expirationTime > 0 and aura2.expirationTime < earliest then
-                            earliest = aura2.expirationTime
-                            if aura2.duration and aura2.duration > 0 then rmDuration = aura2.duration end
-                        end
+                -- UnitBuff removed in TWW; use C_UnitAuras.GetAuraDataBySpellID for unit buffs
+                local ok, auraData = pcall(C_UnitAuras.GetAuraDataBySpellID, u, RENEWING_MIST_SPELL_ID, "HELPFUL")
+                if ok and auraData then
+                    count = count + 1
+                    local expTime2 = auraData.expirationTime
+                    local dur2     = auraData.duration
+                    if expTime2 and expTime2 > 0 and expTime2 < earliest then
+                        earliest = expTime2
+                        if dur2 and dur2 > 0 then rmDuration = dur2 end
                     end
-                    i2 = i2 + 1
                 end
             end
         end
@@ -606,7 +655,15 @@ Events:SetScript("OnUpdate", function(self, elapsed)
     elapsedTotal = elapsedTotal + elapsed
     if elapsedTotal < 0.05 then return end
     elapsedTotal = 0
-    for i = 1, MAX_BARS do RefreshBar(i) end
+    for i = 1, MAX_BARS do
+        -- Only poll frames that RebuildBars has already set up (cfg exists and enabled).
+        -- RefreshBar no longer guards on IsShown, so we must gate here to avoid
+        -- trying to show frames that were never positioned by RebuildBars.
+        local cfg = barConfigs[i]
+        if cfg and cfg.enabled and resourceBarsEnabled then
+            RefreshBar(i)
+        end
+    end
 end)
 
 -- ── Profile Integration ──────────────────────────────────────────────────────

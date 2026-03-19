@@ -420,33 +420,51 @@ end
 -- ── Glow system ────────────────────────────────────────────────────────────────
 local spellGlowFrames = {}
 
-local function CreateGlowFrame(parent, r, g, b)
-    local glow = CreateFrame("Frame", nil, parent)
-    glow:SetFrameLevel(parent:GetFrameLevel()+5)
-    glow:SetPoint("TOPLEFT",parent,"TOPLEFT",-4,4); glow:SetPoint("BOTTOMRIGHT",parent,"BOTTOMRIGHT",4,-4); glow:Hide()
-    local function makeEdge(point,relPoint,w,h)
-        local t = glow:CreateTexture(nil,"OVERLAY")
+local function CreateGlowFrame(r, g, b)
+    -- Parent to UIParent temporarily; will be re-anchored to the alert overlay at ShowGlow time.
+    local glow = CreateFrame("Frame", nil, UIParent)
+    glow:SetFrameStrata("FULLSCREEN_DIALOG")
+    glow:SetFrameLevel(200)
+    glow:SetSize(64, 64)
+    glow:Hide()
+    local function makeEdge(point, relPoint, w, h)
+        local t = glow:CreateTexture(nil, "OVERLAY")
         t:SetTexture("Interface\\SpellActivationOverlay\\IconAlert")
-        t:SetTexCoord(0,1,0,0.5); t:SetVertexColor(r,g,b,0.85); t:SetSize(w,h)
-        t:SetPoint(point,glow,relPoint,0,0)
+        t:SetTexCoord(0, 1, 0, 0.5); t:SetVertexColor(r, g, b, 0.85); t:SetSize(w, h)
+        t:SetPoint(point, glow, relPoint, 0, 0)
     end
     makeEdge("TOP","TOP",64,16); makeEdge("BOTTOM","BOTTOM",64,16)
     makeEdge("LEFT","LEFT",16,64); makeEdge("RIGHT","RIGHT",16,64)
     local ag = glow:CreateAnimationGroup(); ag:SetLooping("BOUNCE")
     local anim = ag:CreateAnimation("Alpha"); anim:SetFromAlpha(0.4); anim:SetToAlpha(1.0)
     anim:SetDuration(0.6); anim:SetSmoothing("IN_OUT"); glow.animGroup = ag
-    function glow:ShowGlow() self:Show(); self.animGroup:Play() end
-    function glow:HideGlow() self.animGroup:Stop(); self:Hide() end
+    function glow:ShowGlow(anchorFrame)
+        -- Anchor to the alert overlay so the glow sits on top of it.
+        -- Fall back to a sensible screen position if no anchor is given.
+        self:ClearAllPoints()
+        if anchorFrame and anchorFrame.IsShown and anchorFrame:IsShown() then
+            self:SetParent(anchorFrame)
+            self:SetAllPoints(anchorFrame)
+        else
+            self:SetParent(UIParent)
+            self:SetPoint("CENTER", UIParent, "CENTER", 0, -100)
+            self:SetSize(64, 64)
+        end
+        self:Show(); self.animGroup:Play()
+    end
+    function glow:HideGlow()
+        self.animGroup:Stop()
+        self:Hide()
+    end
     return glow
 end
 
 local function GetOrCreateGlowForAura(aura)
     local sid = aura.spellId; if not sid or sid <= 0 then return nil end
     if spellGlowFrames[sid] then return spellGlowFrames[sid] end
-    local r,g,b = 1,0.8,0
+    local r, g, b = 1, 0.8, 0
     if aura.glowColor then r=aura.glowColor[1] or r; g=aura.glowColor[2] or g; b=aura.glowColor[3] or b end
-    local gf = CreateGlowFrame(UIParent,r,g,b)
-    gf:SetSize(64,64); gf:SetPoint("CENTER",UIParent,"CENTER",0,-100)
+    local gf = CreateGlowFrame(r, g, b)
     spellGlowFrames[sid] = gf; return gf
 end
 
@@ -489,7 +507,7 @@ local function OnCooldownViewerFrameShow(self)
     if overlay then activeOverlays[alertKey] = overlay end
     if API.DEBUG then print(entry.color .. "[MidnightQoL]|r " .. entry.label .. ": " .. spellName) end
     if entry.aura.glowEnabled then
-        local gf = GetOrCreateGlowForAura(entry.aura); if gf then gf:ShowGlow() end
+        local gf = GetOrCreateGlowForAura(entry.aura); if gf then gf:ShowGlow(overlay) end
     end
 end
 
@@ -665,7 +683,7 @@ local function OnBuffViewerFrameShow(self)
     end
     if API.DEBUG then print("|cFF00FF00[MidnightQoL]|r Gained: " .. spellName) end
     if entry.glowEnabled then
-        local gf = GetOrCreateGlowForAura(entry); if gf then gf:ShowGlow() end
+        local gf = GetOrCreateGlowForAura(entry); if gf then gf:ShowGlow(overlay) end
     end
 end
 
@@ -839,7 +857,7 @@ local function FireAuraGained(sid)
     if overlay then activeOverlays[alertKey] = overlay end
     if API.DEBUG then print(color .. "[MidnightQoL]|r " .. label .. ": " .. spellName) end
     if entry.glowEnabled then
-        local gf = GetOrCreateGlowForAura(entry); if gf then gf:ShowGlow() end
+        local gf = GetOrCreateGlowForAura(entry); if gf then gf:ShowGlow(overlay) end
     end
 end
 
@@ -1061,14 +1079,11 @@ local function CheckLustDebuff()
     end
     if not lustEntry then return end
 
-    -- Scan debuffs using C_UnitAuras (UnitDebuff removed in TWW 11.0+)
+    -- Scan debuffs using C_UnitAuras (UnitDebuff removed in TWW)
     local foundSID = nil
-    local i = 1
-    while true do
-        local aura = C_UnitAuras.GetDebuffDataByIndex("player", i)
-        if not aura then break end
-        if aura.spellId and SATED_DEBUFF_IDS[aura.spellId] then foundSID = aura.spellId; break end
-        i = i + 1
+    for spellId in pairs(SATED_DEBUFF_IDS) do
+        local ok, auraData = pcall(C_UnitAuras.GetPlayerAuraBySpellID, spellId)
+        if ok and auraData then foundSID = spellId; break end
     end
 
     if foundSID and not lustDebuffActive then

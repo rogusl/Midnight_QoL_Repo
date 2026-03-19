@@ -13,17 +13,17 @@ local trackedExternals = API.trackedExternals
 
 -- ── Content frame (hosted inside Core's scroll frame) ─────────────────────────
 local contentFrame = CreateFrame("Frame", "MidnightQoLAlertsFrame", UIParent)
-contentFrame:SetSize(760, 1); contentFrame:Hide()
+contentFrame:SetSize(620, 1); contentFrame:Hide()
 
 -- ── Per-type entry pool ────────────────────────────────────────────────────────
 local auraEntryPool = {buff={}, debuff={}, external={}}
 
 local function CreateAuraEntry(parentFrame, slotIndex, auraType)
     local ef = CreateFrame("Frame","BuffAlertEntry"..auraType..slotIndex, parentFrame)
-    ef:SetSize(760,115); ef:Hide()
+    ef:SetSize(640,115); ef:Hide()
 
     local sep = ef:CreateTexture(nil,"BACKGROUND"); sep:SetColorTexture(0.3,0.3,0.3,0.4)
-    sep:SetPoint("TOPLEFT",0,0); sep:SetSize(760,1)
+    sep:SetPoint("TOPLEFT",0,0); sep:SetSize(640,1)
 
     local enableCb = CreateFrame("CheckButton","BuffAlertEnableCheckbox"..auraType..slotIndex,ef,"UICheckButtonTemplate")
     enableCb:SetSize(20,20); enableCb:SetPoint("TOPLEFT",0,-2)
@@ -391,25 +391,5 @@ OnAlertsTabActivate = function()
 end
 
 API.RegisterTab("Alerts", contentFrame, OnAlertsTabActivate, 80, OnAlertsTabDeactivate, 2)
-
--- Called by Core's ActivateTabByIndex on every tab switch so the button
--- is hidden when any other tab is active, regardless of activation order.
-API.UpdateAddButtons = function(activeTabIndex)
-    -- Find our own tab index by matching the registered frame
-    local isAlertsTab = false
-    if _G["MidnightQoLTab1"] then  -- tabs exist
-        for i = 1, 20 do
-            local btn = _G["MidnightQoLTab" .. i]
-            if not btn then break end
-            -- Core hides non-active tab frames; contentFrame visibility tells us
-        end
-    end
-    -- Simpler: just check if contentFrame is shown
-    if contentFrame:IsShown() then
-        addBuffBtn:Show()
-    else
-        addBuffBtn:Hide()
-    end
-end
 -- Ensure buttons start hidden (RebuildTabBar activates tab 1/General on load)
 OnAlertsTabDeactivate()

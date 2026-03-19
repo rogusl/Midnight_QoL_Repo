@@ -2,11 +2,7 @@
 ## Title: Midnight QoL |cFF88FF88Buff Alerts|r
 ## Notes: Visual/audio alerts for buffs, debuffs, and externals. Requires MidnightQoL.
 ## Author: Rogus
-<<<<<<< HEAD
-## Version: 2.2
-=======
-## Version: 1.0.37
->>>>>>> ad93054fd28f5543fffd3cbbcaa94c2d4d3942fe
+## Version: 2.2.0
 ## SavedVariables: BuffAlertDB
 ## Dependencies: MidnightQoL
 

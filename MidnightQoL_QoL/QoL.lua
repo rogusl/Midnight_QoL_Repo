@@ -260,39 +260,10 @@ local function ShowPetReminderOverlay(playSound)
 
     petReminderFrame:SetAlpha(0); petReminderFrame:Show()
     UIFrameFadeIn(petReminderFrame,0.4,0,1)
-    petReminderFrame.hideTimer = C_Timer.NewTimer(8,function()
+    petReminderFrame.hideTimer = C_Timer.NewTimer(20,function()
         UIFrameFadeOut(petReminderFrame,1.0,1,0)
         C_Timer.After(1.1,function() if petReminderFrame:GetAlpha()<0.05 then petReminderFrame:Hide() end end)
         petReminderFrame.hideTimer=nil
-    end)
-end
-
-local petReminderTicker = nil
-
-local function StopPetReminderTicker()
-    if petReminderTicker then petReminderTicker:Cancel(); petReminderTicker = nil end
-end
-
-local function StartPetReminderTicker()
-    StopPetReminderTicker()
-    if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then return end
-    if not PET_CLASSES[API.playerClass] then return end
-    -- Fire every 2 minutes while pet is missing
-    petReminderTicker = C_Timer.NewTicker(120, function()
-        if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then
-            StopPetReminderTicker(); return
-        end
-        if UnitExists("pet") then
-            StopPetReminderTicker(); return
-        end
-        if IsMounted() then return end
-        if not PET_CLASSES[API.playerClass] then
-            StopPetReminderTicker(); return
-        end
-        -- Only fire if pet is actually missing
-        if not UnitExists("pet") then
-            ShowPetReminderOverlay(true)
-        end
     end)
 end
 
@@ -301,21 +272,15 @@ local function CheckPetReminder(reason)
     if not PET_CLASSES[API.playerClass] then return end
     -- Don't fire while mounted or flying — pet is dismissed by design
     if IsMounted() then return end
+    -- Don't fire in combat — pets can be temporarily dismissed by mechanics
+    -- and Hunter pets auto-dismiss/resummon around certain combat events
+    if InCombatLockdown() then return end
     -- If the pet exists but spec hasn't been populated yet, stay silent —
     -- PET_SPECIALIZATION_CHANGED will fire once the data is ready.
     if IsPetSpecPending() then return end
     ShowPetReminderOverlay(not UnitExists("pet"))
 end
 API.CheckPetReminder = CheckPetReminder
-
--- Start or stop the periodic reminder ticker based on pet presence.
-local function SyncPetReminderTicker()
-    if UnitExists("pet") or not (BuffAlertDB and BuffAlertDB.petReminderEnabled) or not PET_CLASSES[API.playerClass] then
-        StopPetReminderTicker()
-    else
-        if not petReminderTicker then StartPetReminderTicker() end
-    end
-end
 
 -- ── Layout handle provider ─────────────────────────────────────────────────────
 API.RegisterLayoutHandles(function()
@@ -333,6 +298,41 @@ API.RegisterLayoutHandles(function()
     }}
 end)
 
+-- ============================================================
+-- DAMAGE METER AUTO-RESET
+-- On instance entry, prompt the player to reset the built-in
+-- Blizzard damage meter (C_DamageMeter.Reset).
+-- Uses StaticPopup so the dialog is taint-free and dismissable.
+-- Only fires when: enabled, entering an instance (not login/reload),
+-- and the damage meter CVar is actually on.
+-- ============================================================
+
+StaticPopupDialogs["MIDNIGHTQOL_METER_RESET"] = {
+    text      = "|cFF00CCFF[MidnightQoL]|r Reset the damage meter for this run?",
+    button1   = "Reset",
+    button2   = "Cancel",
+    OnAccept  = function()
+        if C_DamageMeter and C_DamageMeter.Reset then
+            C_DamageMeter.Reset()
+        end
+    end,
+    timeout   = 30,
+    whileDead = false,
+    hideOnEscape = true,
+    preferredIndex = 3,
+}
+
+local function TryPromptMeterReset()
+    if not BuffAlertDB or not BuffAlertDB.meterAutoReset then return end
+    -- Only prompt if the damage meter is actually enabled
+    if GetCVar("damageMeterEnabled") ~= "1" then return end
+    -- Only prompt in instanced content (dungeon, raid, M+, scenario)
+    local _, instanceType = GetInstanceInfo()
+    if instanceType ~= "party" and instanceType ~= "raid"
+        and instanceType ~= "scenario" then return end
+    StaticPopup_Show("MIDNIGHTQOL_METER_RESET")
+end
+
 -- ── Events ─────────────────────────────────────────────────────────────────────
 local qolEvents = CreateFrame("Frame")
 qolEvents:RegisterEvent("PLAYER_LOGIN")
@@ -340,7 +340,7 @@ qolEvents:RegisterEvent("READY_CHECK")
 qolEvents:RegisterEvent("UNIT_PET")
 qolEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
 qolEvents:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-qolEvents:RegisterEvent("PLAYER_REGEN_ENABLED")  -- check pet reminder on leaving combat
+qolEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
 
 -- Poll for pet spec up to maxTries times, 1s apart.
 -- Stops as soon as GetPetSpecialization() returns a valid ID.
@@ -368,27 +368,44 @@ qolEvents:SetScript("OnEvent", function(self, event, ...)
             petReminderFrame:ClearAllPoints()
             petReminderFrame:SetPoint("CENTER",UIParent,"CENTER", BuffAlertDB.petReminderX, BuffAlertDB.petReminderY or 80)
         end
-        C_Timer.After(3, function() CheckPetReminder("login"); SyncPetReminderTicker() end)
+        C_Timer.After(3, function() CheckPetReminder("login") end)
     elseif event == "READY_CHECK" then
         CheckPetReminder("ready check")
     elseif event == "UNIT_PET" then
         local unit = ...
         if unit == "player" and PET_CLASSES[API.playerClass] then
             if IsMounted() then return end
+            if InCombatLockdown() then return end
             if IsPetSpecPending() then
                 -- Spec data isn't ready yet — poll until it is
                 WaitForPetSpec()
             else
-                C_Timer.After(0.5, function() CheckPetReminder("pet changed"); SyncPetReminderTicker() end)
+                C_Timer.After(0.5, function() CheckPetReminder("pet changed") end)
             end
         end
     elseif event == "PLAYER_ENTERING_WORLD" then
+        local isInitialLogin, isReloadingUi = ...
         -- Fire on all zone transitions including login and reload
-        C_Timer.After(3, function() CheckPetReminder("entering world"); SyncPetReminderTicker() end)
+        C_Timer.After(3, function() CheckPetReminder("entering world") end)
+        -- Prompt meter reset only on genuine zone transitions, not login/reload
+        if not isInitialLogin and not isReloadingUi then
+            C_Timer.After(1.5, TryPromptMeterReset)
+        end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         CheckPetReminder("spec change")
     elseif event == "PLAYER_REGEN_ENABLED" then
-        CheckPetReminder("leaving combat")
+        -- Only remind on leaving combat if the pet is actually missing
+        if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then return end
+        if not PET_CLASSES[API.playerClass] then return end
+        if IsMounted() then return end
+        if not UnitExists("pet") then
+            C_Timer.After(1, function()
+                -- Re-check after 1s to give Hunter pets a chance to resummon automatically
+                if not InCombatLockdown() and not UnitExists("pet") and not IsMounted() then
+                    ShowPetReminderOverlay(true)
+                end
+            end)
+        end
     end
 end)
 

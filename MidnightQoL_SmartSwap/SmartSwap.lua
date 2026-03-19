@@ -277,25 +277,28 @@ local function ApplyLoadoutSideEffects(loadoutID, source)
         if layoutIdx ~= GetActiveLayoutIndex() then
             SetActiveLayout(layoutIdx)
             local lname = layRule.layoutName or ("Layout "..layoutIdx)
-            print(string.format("|cFF00CCFF[MidnightQoL]|r %s — layout |cFFFFD700%s|r", source, lname))
+            API.Debug(string.format("[ALS] %s — layout '%s'", source, lname))
         end
     else
         local def = GetDefaultLayout()
         API.Debug(string.format("[ALS]   no loadout rule — defaultLayout=%s", tostring(def and def.layoutIndex)))
         if def and def.layoutIndex and def.layoutIndex ~= GetActiveLayoutIndex() then
             SetActiveLayout(def.layoutIndex)
-            print(string.format("|cFF00CCFF[MidnightQoL]|r %s — default layout |cFFFFD700%s|r",
-                source, def.layoutName or ""))
+            API.Debug(string.format("[ALS] %s — default layout '%s'", source, def.layoutName or ""))
         end
     end
 
-    -- Equip set by loadout (one-to-one)
+    -- Equip set by loadout (one-to-one) — skip if the set is already equipped.
     local equipID, equipName = FindEquipForLoadout(loadoutID)
     API.Debug(string.format("[ALS]   equipID=%s", tostring(equipID)))
     if equipID then
-        UseEquipmentSet(equipID)
-        print(string.format("|cFF00CCFF[MidnightQoL]|r %s — equipped |cFFFFD700%s|r",
-            source, equipName or "set"))
+        local _, _, _, isEquipped = C_EquipmentSet.GetEquipmentSetInfo(equipID)
+        if not isEquipped then
+            UseEquipmentSet(equipID)
+            API.Debug(string.format("[ALS] %s — equipped '%s'", source, tostring(equipName)))
+        else
+            API.Debug(string.format("[ALS]   equip set '%s' already equipped — skipping", tostring(equipName)))
+        end
     end
 end
 
@@ -345,8 +348,7 @@ local function TryActivitySwap()
         loadConfigPending = true
         C_ClassTalents.LoadConfig(rule.loadoutID, true)
         local lname = GetLoadoutDisplayName(rule.loadoutID) or rule.loadoutName or ""
-        print(string.format("|cFF00CCFF[MidnightQoL]|r %s — loaded loadout |cFFFFD700%s|r",
-            ACT_LABEL[activity], lname))
+        API.Debug(string.format("[ALS] TryActivitySwap: loaded loadout '%s' for activity '%s'", lname, activity))
     end
     MarkActivityHandled(specID, activity)
     C_Timer.After(0.3, function()
@@ -450,8 +452,10 @@ alsEvents:SetScript("OnEvent", function(self, event)
 
     elseif event == "PLAYER_ENTERING_WORLD" or event == "ZONE_CHANGED_NEW_AREA" then
         ClearHandledActivities()
-        -- Delay 2s like ExRT — GetInstanceInfo() is reliable by then
-        C_Timer.After(2, function()
+        -- Delay 3s — GetInstanceInfo() is reliable by then, and C_PvP.IsWarModeActive
+        -- can lag behind by 1-2s on zone transitions so the extra second prevents
+        -- War Mode being misdetected as Open World.
+        C_Timer.After(3, function()
             API.Debug("[ALS] zone entry fired — activity=" .. tostring(GetCurrentActivity()))
             local result = TryActivitySwap()
             if result == true then
@@ -459,9 +463,12 @@ alsEvents:SetScript("OnEvent", function(self, event)
                 local lo = GetActiveLoadoutID()
                 if lo then ApplyLoadoutSideEffects(lo, "Zone entry") end
             elseif result == nil then
-                -- No activity rule — apply side effects for whatever loadout is active
-                local lo = GetActiveLoadoutID()
-                if lo then ApplyLoadoutSideEffects(lo, "Zone entry") end
+                -- No activity rule matched. If War Mode is on, don't apply defaults —
+                -- PLAYER_FLAGS_CHANGED will fire shortly and handle the warmode rule.
+                if not IsInWarMode() then
+                    local lo = GetActiveLoadoutID()
+                    if lo then ApplyLoadoutSideEffects(lo, "Zone entry") end
+                end
             end
             -- result == false → LoadConfig was called, deferred ApplyLoadoutSideEffects
             -- is already scheduled inside TryActivitySwap; don't apply here or we'd
@@ -562,8 +569,8 @@ alsEvents:SetScript("OnEvent", function(self, event)
         C_Timer.After(0, tryApply)
 
     elseif event == "PLAYER_FLAGS_CHANGED" then
-        -- Fires when War Mode is toggled on or off (among other flag changes).
-        -- Re-evaluate activity so the warmode/openworld rule is applied immediately.
+        -- Fires when War Mode activates on zone entry (among other flag changes).
+        -- Re-evaluate activity so the warmode rule is applied once the PvP state settles.
         local wasWarMode = self._lastWarMode
         local nowWarMode = IsInWarMode()
         if nowWarMode ~= wasWarMode then
@@ -571,10 +578,12 @@ alsEvents:SetScript("OnEvent", function(self, event)
             API.Debug("[ALS] PLAYER_FLAGS_CHANGED — War Mode changed to " .. tostring(nowWarMode))
             ClearHandledActivities()
             C_Timer.After(0.5, function()
-                TryActivitySwap()
-                local lo = GetActiveLoadoutID()
-                if lo then
-                    ApplyLoadoutSideEffects(lo, nowWarMode and "War Mode" or "Open World")
+                local result = TryActivitySwap()
+                -- Only apply side effects directly if the loadout was already correct;
+                -- result==false means TryActivitySwap already deferred them internally.
+                if result == true then
+                    local lo = GetActiveLoadoutID()
+                    if lo then ApplyLoadoutSideEffects(lo, nowWarMode and "War Mode" or "Open World") end
                 end
             end)
         end

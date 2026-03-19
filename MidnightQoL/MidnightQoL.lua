@@ -118,10 +118,9 @@ API.GetAvailableImages = GetAvailableImages
 
 -- ── Spec profile system ────────────────────────────────────────────────────────
 local function GetSpecProfileKey()
-    -- Universal profile: one layout shared across all characters and specs.
-    -- Change "global" to (API.playerClass.."_"..tostring(API.currentSpecID or 0))
-    -- if you ever want per-class/spec profiles back.
-    return "global"
+    -- Per-character, per-spec profile key so e.g. Brewmaster and Warlock
+    -- each get their own independent resource bar layouts.
+    return (API.playerClass or "UNKNOWN") .. "_" .. tostring(API.currentSpecID or 0)
 end
 
 local function GetOrCreateSpecProfile(key)
@@ -186,7 +185,7 @@ API.DeepCopy = DeepCopy
 
 -- ── Main window ────────────────────────────────────────────────────────────────
 local mainFrame = CreateFrame("Frame", "MidnightQoLMainFrame", UIParent, "BackdropTemplate")
-mainFrame:SetSize(820, 600)
+mainFrame:SetSize(920, 600)
 mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, -50)
 mainFrame:SetBackdrop({
     bgFile   = "Interface/DialogFrame/UI-DialogBox-Background",
@@ -668,7 +667,7 @@ end)
 -- Lets you copy layout/alert settings from any saved character spec into the
 -- current spec profile, or into any other spec profile.
 local profilesFrame = CreateFrame("Frame","MidnightQoLProfilesFrame",UIParent)
-profilesFrame:SetSize(780,500); profilesFrame:Hide()
+profilesFrame:SetSize(880,500); profilesFrame:Hide()
 
 do
     local LABEL_COLOR   = "|cFFFFD700"
@@ -680,7 +679,7 @@ do
     hdr:SetText(LABEL_COLOR.."Profile Copy Tool|r")
 
     local desc = profilesFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    desc:SetPoint("TOPLEFT",0,-28); desc:SetWidth(640)
+    desc:SetPoint("TOPLEFT",0,-28); desc:SetWidth(860)
     desc:SetJustifyH("LEFT"); desc:SetWordWrap(true)
     desc:SetTextColor(0.8,0.8,0.8,1)
     desc:SetText(
@@ -1017,7 +1016,7 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
 
         -- Register Profiles tab after all sub-addons have loaded
         if API._profilesFrameReady then
-            RegisterTab("Profiles", API._profilesFrame, nil, 90, nil, 6)
+            RegisterTab("Profiles", API._profilesFrame, nil, 90, nil, 5)
         end
 
         -- Show setup guide automatically on first install, after an update,
@@ -1058,12 +1057,15 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
     elseif event=="PLAYER_SPECIALIZATION_CHANGED" then
         local newSpecID=GetSpecializationInfo(GetSpecialization()) or 0
         if newSpecID~=API.currentSpecID then
+            -- Save current spec's layout before switching
+            SaveSpecProfile()
             API.currentSpecID=newSpecID
-            -- Universal profile mode: no reload needed on spec change,
-            -- all specs share the same "global" layout.
+            -- Load the new spec's layout (creates an empty profile if first time)
+            LoadSpecProfile()
             local si=GetSpecialization and GetSpecialization()
             local sn=si and select(2,GetSpecializationInfo(si)) or "Unknown"
             specInfoLabel:SetText("Active Spec: |cFFFFD700"..(API.playerClass or "?").." – "..tostring(sn).."|r")
+            API.Debug("[MidnightQoL] Spec changed to "..tostring(sn).." — loaded spec profile.")
         end
     end
 end)

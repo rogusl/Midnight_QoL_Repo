@@ -8,7 +8,7 @@ local API = MidnightQoLAPI
 
 -- ── Content frame ─────────────────────────────────────────────────────────────
 local whisperFrame = CreateFrame("Frame", "MidnightQoLWhisperFrame", UIParent)
-whisperFrame:SetSize(760, 1); whisperFrame:Hide()
+whisperFrame:SetSize(600, 1); whisperFrame:Hide()
 
 -- ── General section ────────────────────────────────────────────────────────────
 local generalLabel = whisperFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
@@ -59,7 +59,7 @@ local whisperList = API.whisperList  -- same table reference
 local function CreateWhisperEntry(parentFrame, index)
     local yOffset = -170 - ((index-1)*50)
     local ef = CreateFrame("Frame","BuffAlertWhisperEntry"..index,parentFrame)
-    ef:SetSize(760,45); ef:SetPoint("TOPLEFT",parentFrame,"TOPLEFT",0,yOffset)
+    ef:SetSize(600,45); ef:SetPoint("TOPLEFT",parentFrame,"TOPLEFT",0,yOffset)
 
     local nameLabel = ef:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
     nameLabel:SetPoint("TOPLEFT",0,0); nameLabel:SetText("Name:")

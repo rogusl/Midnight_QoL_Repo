@@ -53,13 +53,93 @@ local INVTYPE_TO_SLOTS = {
     INVTYPE_ROBE           = {5},
 }
 
--- ── Is this bag item an ilvl upgrade? ────────────────────────────────────────
+-- ── Primary stat detection ────────────────────────────────────────────────────
+-- Maps specID → primary stat ITEM_MOD key.
+-- Trinkets, necks, cloaks, and rings are stat-agnostic and always pass.
+local AGILITY_SPECS = {
+    -- Druid: Feral/Guardian
+    [103]=true,[104]=true,
+    -- Hunter: all
+    [253]=true,[254]=true,[255]=true,
+    -- Monk: Brewmaster/Windwalker
+    [268]=true,[269]=true,
+    -- Rogue: all
+    [259]=true,[260]=true,[261]=true,
+    -- Demon Hunter: all
+    [577]=true,[581]=true,
+    -- Shaman: Enhancement
+    [263]=true,
+}
+local INTELLECT_SPECS = {
+    -- Death Knight: none
+    -- Druid: Balance/Resto
+    [102]=true,[105]=true,
+    -- Evoker: all
+    [1467]=true,[1468]=true,[1473]=true,
+    -- Mage: all
+    [62]=true,[63]=true,[64]=true,
+    -- Monk: Mistweaver
+    [270]=true,
+    -- Paladin: Holy
+    [65]=true,
+    -- Priest: all
+    [256]=true,[257]=true,[258]=true,
+    -- Shaman: Elemental/Resto
+    [262]=true,[264]=true,
+    -- Warlock: all
+    [265]=true,[266]=true,[267]=true,
+}
+-- Everything else (Warriors, DKs, Ret/Prot Paladin, BM/Prot DH) → Strength
+
+-- Slots that don't have a primary stat and should always be considered
+local STAT_AGNOSTIC_INVTYPES = {
+    INVTYPE_NECK    = true,
+    INVTYPE_FINGER  = true,
+    INVTYPE_TRINKET = true,
+    INVTYPE_CLOAK   = true,
+}
+
+local function GetPlayerPrimaryStatKey()
+    local specIndex = GetSpecialization and GetSpecialization()
+    if not specIndex then return nil end
+    local specID = select(1, GetSpecializationInfo(specIndex))
+    if not specID then return nil end
+    -- C_Item.GetItemStats keys are the VALUES of the ITEM_MOD_*_SHORT globals
+    -- (e.g. "Agility", "Strength", "Intellect" in English), not the variable names.
+    if AGILITY_SPECS[specID]   then return ITEM_MOD_AGILITY_SHORT   end
+    if INTELLECT_SPECS[specID] then return ITEM_MOD_INTELLECT_SHORT  end
+    return ITEM_MOD_STRENGTH_SHORT
+end
+
+local function ItemHasPlayerPrimaryStat(link, invType)
+    -- Stat-agnostic slots: always pass
+    if STAT_AGNOSTIC_INVTYPES[invType] then return true end
+    -- Weapons: always pass (they don't carry primary stats directly)
+    if (invType and invType:find("WEAPON")) or invType == "INVTYPE_RANGED"
+        or invType == "INVTYPE_RANGEDRIGHT" or invType == "INVTYPE_SHIELD"
+        or invType == "INVTYPE_HOLDABLE" then
+        return true
+    end
+
+    local primaryKey = GetPlayerPrimaryStatKey()
+    if not primaryKey then return true end  -- can't determine spec, let it through
+
+    local ok, stats = pcall(C_Item.GetItemStats, link)
+    if not ok or type(stats) ~= "table" then return true end  -- no stat data, let it through
+
+    return (stats[primaryKey] or 0) > 0
+end
+
+
 local function IsUpgrade(link)
     if not link then return false, 0, 0 end
     local _, _, _, _, _, _, _, _, invType = GetItemInfo(link)
     if not invType or invType == "" or invType == "INVTYPE_NON_EQUIP" then return false, 0, 0 end
     local slots = INVTYPE_TO_SLOTS[invType]
     if not slots then return false, 0, 0 end
+
+    -- Skip items that don't have the player's primary stat
+    if not ItemHasPlayerPrimaryStat(link, invType) then return false, 0, 0 end
 
     local bagIlvl = 0
     local ok, detailed = pcall(C_Item.GetDetailedItemLevelInfo, link)
@@ -71,14 +151,21 @@ local function IsUpgrade(link)
     end
     if bagIlvl <= 0 then return false, 0, 0 end
 
-    local bestEquipped = 0
+    -- For slots that can hold two items (rings, trinkets, 1H weapons), compare
+    -- against the LOWER ilvl slot — that's the one we'd actually replace.
+    -- For single-slot items the min and max are the same so this is still correct.
+    local lowestEquipped = math.huge
+    local anyEquipped    = false
     for _, slID in ipairs(slots) do
         local eq = GetEquippedIlvl(slID)
-        if eq > bestEquipped then bestEquipped = eq end
+        if eq > 0 then
+            anyEquipped = true
+            if eq < lowestEquipped then lowestEquipped = eq end
+        end
     end
 
-    if bestEquipped == 0 then return true, bagIlvl, 0 end
-    return bagIlvl > bestEquipped, bagIlvl, bestEquipped
+    if not anyEquipped then return true, bagIlvl, 0 end
+    return bagIlvl > lowestEquipped, bagIlvl, lowestEquipped
 end
 
 -- ── Overlay management ────────────────────────────────────────────────────────
@@ -161,7 +248,61 @@ local function HideAllOverlays()
     for _, ov in pairs(overlays) do ov:Hide() end
 end
 
--- ── Initialise hooks after frames exist ──────────────────────────────────────
+-- ── Group loot roll overlays ──────────────────────────────────────────────────
+-- Hook GroupLootFrame1-4 OnShow (same approach as Pawn).
+-- Each frame has a .rollID and an .IconFrame child; we overlay the badge on
+-- IconFrame so it sits on top of the item icon.
+
+local lootOverlays = {}
+
+local function GetOrCreateLootOverlay(iconFrame)
+    if lootOverlays[iconFrame] then return lootOverlays[iconFrame] end
+    local f = CreateFrame("Frame", nil, iconFrame)
+    f:SetFrameLevel(iconFrame:GetFrameLevel() + 5)
+    f:SetAllPoints(iconFrame)
+    local arrow = f:CreateTexture(nil, "OVERLAY")
+    arrow:SetSize(16, 16)
+    arrow:SetPoint("TOPRIGHT", f, "TOPRIGHT", 2, 2)
+    arrow:SetTexture("Interface\\Buttons\\UI-MicroStream-Green")
+    arrow:SetVertexColor(0, 1, 0.2, 1)
+    f.badge = arrow
+    local lbl = f:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
+    lbl:SetPoint("CENTER", arrow, "CENTER", 0, -3)
+    lbl:SetFont(lbl:GetFont(), 8, "OUTLINE")
+    lbl:SetTextColor(0, 1, 0.2, 1)
+    f.lbl = lbl
+    f:Hide()
+    lootOverlays[iconFrame] = f
+    return f
+end
+
+local function UpdateGroupLootFrame(self)
+    local iconFrame = self.IconFrame
+    if not iconFrame then return end
+
+    if not IsEnabled() then
+        if lootOverlays[iconFrame] then lootOverlays[iconFrame]:Hide() end
+        return
+    end
+
+    local link = self.rollID and GetLootRollItemLink(self.rollID)
+    if not link then
+        if lootOverlays[iconFrame] then lootOverlays[iconFrame]:Hide() end
+        return
+    end
+
+    local upgrade, bagIlvl, equippedIlvl = IsUpgrade(link)
+    if upgrade then
+        local f = GetOrCreateLootOverlay(iconFrame)
+        local delta = bagIlvl - equippedIlvl
+        f.lbl:SetText(delta > 0 and ("+"..delta) or "NEW")
+        f:Show()
+    else
+        if lootOverlays[iconFrame] then lootOverlays[iconFrame]:Hide() end
+    end
+end
+
+
 local initFrame = CreateFrame("Frame")
 initFrame:RegisterEvent("PLAYER_LOGIN")
 initFrame:RegisterEvent("PLAYER_EQUIPMENT_CHANGED")
@@ -184,6 +325,14 @@ initFrame:SetScript("OnEvent", function(self, event)
             local bag = _G["ContainerFrame"..i]
             if bag and bag.UpdateItems then
                 hooksecurefunc(bag, "UpdateItems", UpdateContainerFrame)
+            end
+        end
+        -- Hook group loot roll frames (GroupLootFrame1-4)
+        -- OnShow fires each time a new roll item appears; self.rollID gives the roll.
+        for i = 1, 4 do
+            local glf = _G["GroupLootFrame"..i]
+            if glf then
+                glf:HookScript("OnShow", UpdateGroupLootFrame)
             end
         end
         return

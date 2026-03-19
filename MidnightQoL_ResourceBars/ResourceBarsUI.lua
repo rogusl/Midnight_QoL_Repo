@@ -11,7 +11,7 @@ local function GetBarConfigs() return API.barConfigs end
 
 -- ── Content frame ─────────────────────────────────────────────────────────────
 local contentFrame = CreateFrame("Frame","MidnightQoLResourceBarsFrame",UIParent)
-contentFrame:SetSize(760,500); contentFrame:Hide()
+contentFrame:SetSize(640,500); contentFrame:Hide()
 
 -- ── Header ────────────────────────────────────────────────────────────────────
 local headerLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
@@ -19,7 +19,7 @@ headerLbl:SetPoint("TOPLEFT",0,-4)
 headerLbl:SetText("|cFFFFD700Resource Bars|r")
 
 local descLbl = contentFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-descLbl:SetPoint("TOPLEFT",0,-28); descLbl:SetWidth(750); descLbl:SetJustifyH("LEFT"); descLbl:SetWordWrap(true)
+descLbl:SetPoint("TOPLEFT",0,-28); descLbl:SetWidth(630); descLbl:SetJustifyH("LEFT"); descLbl:SetWordWrap(true)
 descLbl:SetTextColor(0.75,0.75,0.75,1)
 descLbl:SetText(
     "Configure up to "..MAX_BARS.." live resource bars per spec. Bars auto-populate with your spec's primary and "..
@@ -384,7 +384,7 @@ local function CreateBarRow(i)
 
     -- Separator line above each row
     local sep = contentFrame:CreateTexture(nil,"BACKGROUND")
-    sep:SetColorTexture(0.3,0.3,0.3,0.4); sep:SetSize(750,1)
+    sep:SetColorTexture(0.3,0.3,0.3,0.4); sep:SetSize(630,1)
     sep:SetPoint("TOPLEFT",0,y1+8)
 
     -- ── Sub-row 1 ─────────────────────────────────────────────────────────────

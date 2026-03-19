@@ -421,24 +421,22 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
         -- for clean finishes (before SUCCEEDED), AND for silently-failed casts
         -- (mount blocked, facing, range, moving, etc.) that never get FAILED/INTERRUPTED.
         --
-        -- Guard: if the cast GUID still matches what the bar is showing, a new
-        -- UNIT_SPELLCAST_START hasn't arrived yet — this is a real stop, not pushback.
-        -- We defer by one frame so a same-frame START can override us.
+        -- If UNIT_SPELLCAST_DELAYED just fired this same frame, the STOP is part of
+        -- the pushback sequence and the bar has already been restarted — ignore it.
+        if f._justDelayed then f._justDelayed = nil; return end
         local stoppedGUID = castGUID
         C_Timer.After(0, function()
+            if f._justDelayed then f._justDelayed = nil; return end
             local currentName, _, currentGUID = UnitCastingInfo("player")
-            -- If the player has started a different/new cast in this frame, leave the bar alone.
+            -- If a different new cast has started, leave the bar alone.
             if currentName and currentGUID and currentGUID ~= stoppedGUID then return end
-            -- Otherwise (no cast, or same cast still listed) → stop the bar.
             StopCast(false)
         end)
 
     elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-        local stoppedGUID = castGUID
-        C_Timer.After(0, function()
-            local currentName = UnitChannelInfo("player")
-            if not currentName then StopCast(false) end
-        end)
+        -- Fire immediately: if a new channel starts in the same frame it will
+        -- call StartChannel and re-show the bar on its own.
+        StopCast(false)
 
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
         StopCast(false)
@@ -447,12 +445,16 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
         StopCast(true)
 
     elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET" then
-        f.casting = false; f.channeling = false; f:Hide()
+        if finishTimer then finishTimer:Cancel(); finishTimer = nil end
+        f.interrupted = nil
+        f.casting = false; f.channeling = false
+        HideTicks(); f.latTex:Hide()
+        f:Hide()
 
     elseif event == "UNIT_SPELLCAST_DELAYED" then
-        -- Pushback: WoW fires STOP then START around the delay, but there's a
-        -- 1-frame gap. Re-read cast info and restart the bar immediately so it
-        -- never disappears during the pushback.
+        -- Pushback: set flag so the paired UNIT_SPELLCAST_STOP (which fires in the
+        -- same or next frame) knows to ignore itself instead of hiding the bar.
+        f._justDelayed = true
         local name, _, _, startTime, endTime, _, _, notInterrupt = UnitCastingInfo("player")
         if name then
             StartCast(name, startTime, endTime, notInterrupt, false)

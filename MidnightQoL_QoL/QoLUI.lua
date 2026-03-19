@@ -9,7 +9,7 @@ local API = MidnightQoLAPI
 
 -- ── General tab content frame ─────────────────────────────────────────────────
 local generalFrame = CreateFrame("Frame","MidnightQoLGeneralFrame",UIParent)
-generalFrame:SetSize(760,600); generalFrame:Hide()
+generalFrame:SetSize(620,600); generalFrame:Hide()
 
 -- ── Helper ────────────────────────────────────────────────────────────────────
 local function MakeCheck(name, parent, labelText, anchorFrame, offsetY)
@@ -105,9 +105,19 @@ brezCheck:SetScript("OnClick", function(self)
     if API.UpdateBrezFrame then API.UpdateBrezFrame() end
 end)
 
+-- Prey Bar toggle
+local preyBarCheck = CreateFrame("CheckButton","CSGenPreyBarCheck",generalFrame,"UICheckButtonTemplate")
+preyBarCheck:SetSize(24,24); preyBarCheck:SetPoint("TOPLEFT", brezCheck, "BOTTOMLEFT", 0, -4)
+local preyBarLbl = _G["CSGenPreyBarCheckText"]
+if preyBarLbl then preyBarLbl:SetText("Prey Hunt Progress Bar  |cFFAAAAAA(shows while on a Prey quest)|r") end
+preyBarCheck:SetScript("OnClick", function(self)
+    if BuffAlertDB then BuffAlertDB.preyBarEnabled = self:GetChecked() end
+    if API.UpdatePreyBar then API.UpdatePreyBar() end
+end)
+
 -- Debug Mode toggle
 local debugCheck = CreateFrame("CheckButton","CSGenDebugCheck",generalFrame,"UICheckButtonTemplate")
-debugCheck:SetSize(24,24); debugCheck:SetPoint("TOPLEFT", brezCheck, "BOTTOMLEFT", 0, -4)
+debugCheck:SetSize(24,24); debugCheck:SetPoint("TOPLEFT", preyBarCheck, "BOTTOMLEFT", 0, -4)
 local debugLbl = _G["CSGenDebugCheckText"]
 if debugLbl then debugLbl:SetText("Debug Mode  |cFFAAAAAA(/mqldebug)|r") end
 debugCheck:SetScript("OnClick", function(self)
@@ -140,11 +150,20 @@ sellConfirmCheck:SetScript("OnClick", function(self)
     if BuffAlertDB then BuffAlertDB.sellConfirmEnabled = self:GetChecked() end
 end)
 
+-- Damage Meter Auto-Reset toggle
+local meterResetCheck = CreateFrame("CheckButton","CSGenMeterResetCheck",generalFrame,"UICheckButtonTemplate")
+meterResetCheck:SetSize(24,24); meterResetCheck:SetPoint("TOPLEFT", sellConfirmCheck, "BOTTOMLEFT", 0, -4)
+local meterResetLbl = _G["CSGenMeterResetCheckText"]
+if meterResetLbl then meterResetLbl:SetText("Damage Meter Auto-Reset  |cFFAAAAAA(prompts on instance entry)|r") end
+meterResetCheck:SetScript("OnClick", function(self)
+    if BuffAlertDB then BuffAlertDB.meterAutoReset = self:GetChecked() end
+end)
+
 -- ── Section: Modules ──────────────────────────────────────────────────────────
 -- One checkbox per non-General tab. Hiding a tab removes its button from the bar.
 -- ── UI Fading ─────────────────────────────────────────────────────────────────
 local fadeHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
-fadeHeader:SetPoint("TOPLEFT", sellConfirmCheck, "BOTTOMLEFT", 0, -24)
+fadeHeader:SetPoint("TOPLEFT", meterResetCheck, "BOTTOMLEFT", 0, -24)
 fadeHeader:SetText("|cFFFFD700UI Fading|r")
 
 local fadeDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
@@ -272,15 +291,11 @@ modulesDesc:SetText("Show or hide tabs in the configuration window.")
 modulesDesc:SetTextColor(0.6,0.6,0.6)
 
 -- Each entry: { tab label, DB-friendly key, display label }
--- General is always shown. Everything else can be toggled off.
 local MODULE_TABS = {
+    { label="Layouts",   key="Layouts",   display="Layouts"   },
     { label="Alerts",    key="Alerts",    display="Alerts"    },
-    { label="SmartSwap", key="SmartSwap", display="SmartSwap" },
-    { label="Whisper",   key="Whisper",   display="Whisper"   },
     { label="Resources", key="Resources", display="Resources" },
-    { label="Keystones", key="Keystones", display="Keystones" },
     { label="Castbar",   key="Castbar",   display="Castbar"   },
-    { label="Defaults",  key="Defaults",  display="Defaults"  },
     { label="Profiles",  key="Profiles",  display="Profiles"  },
 }
 
@@ -697,9 +712,11 @@ local function SyncGeneralUI()
     poisonCheck:SetChecked(BuffAlertDB.poisonAlertEnabled == true)
     raidbuffCheck:SetChecked(BuffAlertDB.raidbuffCheckEnabled == true)
     brezCheck:SetChecked(BuffAlertDB.battlerezEnabled == true)
+    preyBarCheck:SetChecked(BuffAlertDB.preyBarEnabled == true)
     debugCheck:SetChecked(API.DEBUG or false)
     bagUpgradeCheck:SetChecked(BuffAlertDB.bagUpgradeEnabled == true)
     sellConfirmCheck:SetChecked(BuffAlertDB.sellConfirmEnabled == true)
+    meterResetCheck:SetChecked(BuffAlertDB.meterAutoReset == true)
     autoAcceptCheck:SetChecked(BuffAlertDB.autoQuestAccept or false)
     autoTurnInCheck:SetChecked(BuffAlertDB.autoQuestTurnIn or false)
     -- Experience bar

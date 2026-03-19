@@ -2,11 +2,7 @@
 ## Title: Midnight QoL — QoL
 ## Notes: Pet reminder, pull timer, break timer, /rc ready check, experience bar, auto-quest, UI fade sliders, bag upgrade, and General tab toggles.
 ## Author: Rogus
-<<<<<<< HEAD
-## Version: 2.2
-=======
-## Version: 1.0.37
->>>>>>> ad93054fd28f5543fffd3cbbcaa94c2d4d3942fe
+## Version: 2.2.0
 ## Dependencies: MidnightQoL
 
 ExperienceBar.lua
@@ -18,3 +14,4 @@ BagUpgrade.lua
 SellConfirm.lua
 WoWSettings.lua
 Utility.lua
+PreyBar.lua

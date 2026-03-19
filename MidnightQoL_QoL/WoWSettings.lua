@@ -55,6 +55,7 @@ local CVAR_DEFS = {
     { key="rfClassColor",       cvar="raidFrameShowClassColor",                label="Use Class Colors",                  section="Raid Frames"           },
     { key="rfDispellable",      cvar="raidFrameShowOnlyDispellableDebuffs",    label="Only Dispellable Debuffs",          section="Raid Frames"           },
     -- Action Bars
+    { key="autoPushSpell", cvar="AutoPushSpellToActionBar",  label="Auto-push spells to action bar", section="Action Bars" },
     { key="bar2",  cvar="multiBarBottomLeft",   label="Bar 2 (Bottom Left)",   section="Action Bars" },
     { key="bar3",  cvar="multiBarBottomRight",  label="Bar 3 (Bottom Right)",  section="Action Bars" },
     { key="bar4",  cvar="multiBarRight",        label="Bar 4 (Right 1)",       section="Action Bars" },
@@ -153,14 +154,32 @@ local function ApplySettings(silent)
         end
     end
 
-    if db.interactKey and db.interactKey ~= "" then
+    if db.interactKey and db.interactKey ~= "" and not InCombatLockdown() then
         SetBinding(db.interactKey, INTERACT_BINDING)
         SaveBindings(GetCurrentBindingSet())
         count = count + 1
     end
 
+    -- CompactRaidFrameManager_UpdateShown cascades into CompactPartyFrame:SetShown()
+    -- which is combat-protected. Defer one frame so we're outside Blizzard's own
+    -- update call stack, and skip entirely if the player is in combat — the frames
+    -- will update naturally once combat ends via PLAYER_REGEN_ENABLED.
     if CompactRaidFrameManager_UpdateShown then
-        CompactRaidFrameManager_UpdateShown()
+        if not InCombatLockdown() then
+            C_Timer.After(0, CompactRaidFrameManager_UpdateShown)
+        end
+        -- If in combat, register a one-shot to run it after combat drops.
+        -- Guard with a flag so multiple ApplySettings calls don't stack listeners.
+        if InCombatLockdown() and not _G.MidnightQoL_RaidFramePendingUpdate then
+            _G.MidnightQoL_RaidFramePendingUpdate = true
+            local f = CreateFrame("Frame")
+            f:RegisterEvent("PLAYER_REGEN_ENABLED")
+            f:SetScript("OnEvent", function(self)
+                self:UnregisterAllEvents()
+                _G.MidnightQoL_RaidFramePendingUpdate = nil
+                C_Timer.After(0, CompactRaidFrameManager_UpdateShown)
+            end)
+        end
     end
 
     ApplyEditModeLayout(silent)
