@@ -183,7 +183,9 @@ f.delay      = 0
 local function StartCast(name, startMs, endMs, notInterrupt, isEmpowered)
     local db = GetDB()
     if not db.enabled then return end
-    f._orphanCheck = 0
+    -- Cancel any active fadeOut: a new cast supersedes it
+    f.fadeOut  = nil
+    f.stopTime = nil
     f.casting    = true
     f.channeling = false
     f.startTime  = startMs / 1000
@@ -206,13 +208,16 @@ local function StartCast(name, startMs, endMs, notInterrupt, isEmpowered)
         local _, _, tex = UnitCastingInfo("player")
         if tex then f.icon:SetTexture(tex); f.icon:Show() else f.icon:Hide() end
     else f.icon:Hide() end
+    f:SetAlpha(1)
     f:Show()
 end
 
 local function StartChannel(name, startMs, endMs, notInterrupt, spellID)
     local db = GetDB()
     if not db.enabled then return end
-    f._orphanCheck = 0
+    -- Cancel any active fadeOut: a new channel supersedes it
+    f.fadeOut  = nil
+    f.stopTime = nil
     f.casting    = false
     f.channeling = true
     f.startTime  = startMs / 1000
@@ -231,40 +236,36 @@ local function StartChannel(name, startMs, endMs, notInterrupt, spellID)
     if db.showChannelTicks and spellID then
         ShowTicks(CHANNEL_TICKS[spellID])
     else HideTicks() end
+    f:SetAlpha(1)
     f:Show()
 end
 
-local finishTimer = nil
+-- StopCast clears active cast state and begins a fadeOut driven by OnUpdate.
+-- Because no timers are used, a DELAYED or CHANNEL_START arriving right after
+-- STOP simply calls StartCast/StartChannel which sets fadeOut=nil and keeps the
+-- bar alive with no flag juggling required. Same approach as Quartz.
 local function StopCast(interrupted)
-    if finishTimer then finishTimer:Cancel(); finishTimer = nil end
-    if f.interrupted and interrupted then return end  -- already showing interrupted, don't stack
     f.casting    = false
     f.channeling = false
     f.latTex:Hide()
     HideTicks()
-    if f.interrupted then return end  -- UNIT_SPELLCAST_STOP after INTERRUPTED — bar already handled
     if not f:IsShown() then return end
+    f.timerStr:SetText("")
     if interrupted then
-        f.interrupted = true
         SetBarColor("colorInterrupted")
         local spellName = f.nameStr:GetText() or ""
-        -- Strip any previous [Interrupted] tag before appending (safety net)
         spellName = spellName:gsub("%s*|cFFFF4444%[Interrupted%]|r", "")
         f.nameStr:SetText(spellName .. " |cFFFF4444[Interrupted]|r")
-        f.timerStr:SetText("")
-        finishTimer = C_Timer.NewTimer(0.7, function() f.interrupted = nil; f:Hide() end)
+        f.stopTime = GetTime() - 0.3  -- fade lasts ~0.7s
     else
         local db = GetDB()
         local dur = db.finishedFlashDur or DEFAULTS.finishedFlashDur
-        if dur > 0 then
-            SetBarColor("colorFinished")
-            f.bar:SetValue(1)
-            f.timerStr:SetText("")
-            finishTimer = C_Timer.NewTimer(dur, function() f:Hide() end)
-        else
-            f:Hide()
-        end
+        SetBarColor("colorFinished")
+        f.bar:SetValue(1)
+        -- Hold full alpha for dur seconds then fade over 1s
+        f.stopTime = GetTime() - (1 - math.max(dur, 0))
     end
+    f.fadeOut = true
 end
 
 -- ── OnUpdate ───────────────────────────────────────────────────────────────────
@@ -275,22 +276,18 @@ f:SetScript("OnUpdate", function(self, elapsed)
 
     if self.channeling then
         local remaining = self.endTime - now
-        if remaining <= 0 then self:Hide(); return end
+        if remaining <= 0 then
+            self.channeling = false
+            self.fadeOut    = true
+            self.stopTime   = now
+            return
+        end
         local total = self.endTime - self.startTime
         if total > 0 then self.bar:SetValue(remaining / total) end
         if db.showTimer then self.timerStr:SetText(string.format("%.1f", remaining)) end
-        -- Safety: orphan channel check
-        self._orphanCheck = (self._orphanCheck or 0) + elapsed
-        if self._orphanCheck >= 0.1 then
-            self._orphanCheck = 0
-            if not UnitChannelInfo("player") then
-                StopCast(false)
-                return
-            end
-        end
 
     elseif self.casting then
-        local total = (self.endTime - self.startTime) + self.delay
+        local total = self.endTime - self.startTime
         if total <= 0 then self:Hide(); return end
         local progress = math.min((now - self.startTime) / total, 1)
         self.bar:SetValue(progress)
@@ -305,18 +302,30 @@ f:SetScript("OnUpdate", function(self, elapsed)
             self.latTex:SetWidth(math.max(1, w))
             self.latTex:Show()
         end
-        -- Safety: quest/interact casts sometimes never fire STOP or SUCCEEDED.
-        -- If the bar thinks we're casting but the game has no cast, hide it.
-        self._orphanCheck = (self._orphanCheck or 0) + elapsed
-        if self._orphanCheck >= 0.1 then
-            self._orphanCheck = 0
-            if not UnitCastingInfo("player") then
-                StopCast(false)
-                return
-            end
+        if now > self.endTime then
+            self.casting  = false
+            self.fadeOut  = true
+            self.stopTime = now
         end
-    end
 
+    elseif self.fadeOut then
+        -- Fade out over 1s from stopTime; stopTime offset controls hold duration
+        local alpha = self.stopTime and (self.stopTime - now + 1) or 0
+        if alpha >= 1 then alpha = 1 end
+        if alpha <= 0 then
+            self.fadeOut  = nil
+            self.stopTime = nil
+            self:SetAlpha(1)
+            self:Hide()
+            return
+        end
+        self:SetAlpha(alpha)
+        return  -- skip GCD update during fade
+
+    else
+        self:Hide()
+        return
+    end
     -- GCD spark
     if db.showGCD then
         local gInfo = C_Spell.GetSpellCooldown(61304)
@@ -416,26 +425,11 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
         local name, _, _, startTime, endTime, _, notInterrupt = UnitChannelInfo("player")
         if name then StartChannel(name, startTime, endTime, notInterrupt, spellID) end
 
-    elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_EMPOWER_STOP" then
-        -- UNIT_SPELLCAST_STOP fires for pushback (game pauses cast then restarts),
-        -- for clean finishes (before SUCCEEDED), AND for silently-failed casts
-        -- (mount blocked, facing, range, moving, etc.) that never get FAILED/INTERRUPTED.
-        --
-        -- If UNIT_SPELLCAST_DELAYED just fired this same frame, the STOP is part of
-        -- the pushback sequence and the bar has already been restarted — ignore it.
-        if f._justDelayed then f._justDelayed = nil; return end
-        local stoppedGUID = castGUID
-        C_Timer.After(0, function()
-            if f._justDelayed then f._justDelayed = nil; return end
-            local currentName, _, currentGUID = UnitCastingInfo("player")
-            -- If a different new cast has started, leave the bar alone.
-            if currentName and currentGUID and currentGUID ~= stoppedGUID then return end
-            StopCast(false)
-        end)
-
-    elseif event == "UNIT_SPELLCAST_CHANNEL_STOP" then
-        -- Fire immediately: if a new channel starts in the same frame it will
-        -- call StartChannel and re-show the bar on its own.
+    elseif event == "UNIT_SPELLCAST_STOP" or event == "UNIT_SPELLCAST_EMPOWER_STOP"
+        or event == "UNIT_SPELLCAST_CHANNEL_STOP" then
+        -- Call StopCast which begins a fadeOut. If DELAYED or CHANNEL_START fires
+        -- immediately after (pushback / tick reset), StartCast/StartChannel will
+        -- clear fadeOut and keep the bar alive — no flags or deferred timers needed.
         StopCast(false)
 
     elseif event == "UNIT_SPELLCAST_SUCCEEDED" then
@@ -445,24 +439,31 @@ events:SetScript("OnEvent", function(self, event, unit, castGUID, spellID)
         StopCast(true)
 
     elseif event == "UNIT_SPELLCAST_FAILED" or event == "UNIT_SPELLCAST_FAILED_QUIET" then
-        if finishTimer then finishTimer:Cancel(); finishTimer = nil end
-        f.interrupted = nil
         f.casting = false; f.channeling = false
+        f.fadeOut = nil; f.stopTime = nil
         HideTicks(); f.latTex:Hide()
-        f:Hide()
+        f:SetAlpha(1); f:Hide()
 
     elseif event == "UNIT_SPELLCAST_DELAYED" then
-        -- Pushback: set flag so the paired UNIT_SPELLCAST_STOP (which fires in the
-        -- same or next frame) knows to ignore itself instead of hiding the bar.
-        f._justDelayed = true
+        -- Pushback: update times and restart the bar. The paired UNIT_SPELLCAST_STOP
+        -- will call StopCast (fadeOut), but StartCast here fires in the same frame and
+        -- immediately cancels the fadeOut — bar stays visible.
         local name, _, _, startTime, endTime, _, _, notInterrupt = UnitCastingInfo("player")
         if name then
             StartCast(name, startTime, endTime, notInterrupt, false)
         end
 
     elseif event == "UNIT_SPELLCAST_CHANNEL_UPDATE" then
+        -- Channel pushback: update times and cancel any fadeOut in progress
         local name, _, _, startTime, endTime = UnitChannelInfo("player")
-        if name and f:IsShown() then f.endTime = endTime / 1000 end
+        if name then
+            f.fadeOut    = nil
+            f.stopTime   = nil
+            f.channeling = true
+            f.startTime  = startTime / 1000
+            f.endTime    = endTime   / 1000
+            f:SetAlpha(1)
+        end
     end
 end)
 

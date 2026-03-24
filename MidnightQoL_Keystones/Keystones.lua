@@ -40,6 +40,7 @@ end
 local unitKeystones    = {}
 local challengesHooked = false
 local partyPanel, dungeonPanel, wheelFrame
+local OpenWheel  -- forward declaration; defined after BuildWheelFrame
 
 -- ── Helpers ───────────────────────────────────────────────────────────────────
 local function ShortName(name)
@@ -218,21 +219,33 @@ local function BuildChallengesFramePanels()
     challengesHooked = true
     local cf = ChallengesFrame; if not cf then return end
 
-    local ownLabel = cf:CreateFontString(nil,"ARTWORK","GameFontNormalMed2")
-    ownLabel:SetPoint("TOPLEFT",cf,"TOPLEFT",16,-56); ownLabel:SetWidth(320); ownLabel:SetJustifyH("LEFT")
+    -- Right-side sidebar anchored just outside ChallengesFrame so nothing overlaps
+    local sidebar = CreateFrame("Frame", nil, cf)
+    sidebar:SetSize(270, 500)
+    sidebar:SetPoint("TOPLEFT", cf, "TOPRIGHT", 4, 0)
+
+    local ownLabel = sidebar:CreateFontString(nil, "ARTWORK", "GameFontNormalMed2")
+    ownLabel:SetPoint("TOPLEFT", sidebar, "TOPLEFT", 8, -10)
+    ownLabel:SetWidth(254); ownLabel:SetJustifyH("LEFT")
 
     -- Party panel
-    local pp = CreateFrame("Frame",nil,cf); pp:SetSize(256,110); pp:SetPoint("TOPLEFT",cf,"TOPLEFT",16,-80)
+    local pp = CreateFrame("Frame", nil, sidebar, "BackdropTemplate")
+    pp:SetSize(260, 110)
+    pp:SetPoint("TOPLEFT", ownLabel, "BOTTOMLEFT", 0, -6)
+    pp:SetBackdrop({ bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",
+                     edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border",
+                     edgeSize=12, insets={left=3,right=3,top=3,bottom=3} })
+    pp:SetBackdropColor(0.05, 0.05, 0.1, 0.85)
+    pp:SetBackdropBorderColor(0.4, 0.6, 1, 0.7)
     do
-        local bg = pp:CreateTexture(nil,"BACKGROUND"); bg:SetAllPoints(); bg:SetAtlas("ChallengeMode-guild-background"); bg:SetAlpha(0.4)
-        local h = pp:CreateFontString(nil,"ARTWORK","GameFontNormalMed2"); h:SetText("Party Keystones"); h:SetPoint("TOPLEFT",12,-7)
-        local d = pp:CreateTexture(nil,"ARTWORK"); d:SetSize(240,9); d:SetAtlas("ChallengeMode-RankLineDivider",false); d:SetPoint("TOP",0,-20)
+        local h = pp:CreateFontString(nil,"ARTWORK","GameFontNormalMed2"); h:SetText("Party Keystones"); h:SetPoint("TOPLEFT",8,-6)
+        local d = pp:CreateTexture(nil,"ARTWORK"); d:SetSize(244,1); d:SetPoint("TOP",0,-18); d:SetColorTexture(0.4,0.6,1,0.5)
         local entries = {}
         for i = 1, 5 do
-            local row = CreateFrame("Frame",nil,pp); row:SetSize(232,18)
-            row:SetPoint("TOP", i==1 and d or entries[i-1], "BOTTOM", 0, i==1 and -2 or 0)
-            local ns = row:CreateFontString(nil,"ARTWORK","GameFontNormal"); ns:SetWidth(115); ns:SetJustifyH("LEFT"); ns:SetPoint("LEFT",4,0); row.nameStr=ns
-            local ks = row:CreateFontString(nil,"ARTWORK","GameFontHighlight"); ks:SetWidth(115); ks:SetJustifyH("RIGHT"); ks:SetPoint("RIGHT",-4,0); row.keyStr=ks
+            local row = CreateFrame("Frame",nil,pp); row:SetSize(244,18)
+            row:SetPoint("TOP", i==1 and d or entries[i-1], "BOTTOM", 0, i==1 and -3 or 0)
+            local ns = row:CreateFontString(nil,"ARTWORK","GameFontNormal"); ns:SetWidth(122); ns:SetJustifyH("LEFT"); ns:SetPoint("LEFT",4,0); row.nameStr=ns
+            local ks = row:CreateFontString(nil,"ARTWORK","GameFontHighlight"); ks:SetWidth(122); ks:SetJustifyH("RIGHT"); ks:SetPoint("RIGHT",-4,0); row.keyStr=ks
             row:Hide(); entries[i]=row
         end
         pp.entries=entries
@@ -240,34 +253,42 @@ local function BuildChallengesFramePanels()
     pp:Hide(); partyPanel=pp
 
     -- Dungeon panel
-    local dp = CreateFrame("Frame",nil,cf); dp:SetSize(370,210); dp:SetPoint("TOPLEFT",pp,"BOTTOMLEFT",0,-10)
+    local dp = CreateFrame("Frame", nil, sidebar, "BackdropTemplate")
+    dp:SetSize(260, 240)
+    dp:SetPoint("TOPLEFT", pp, "BOTTOMLEFT", 0, -6)
+    dp:SetBackdrop({ bgFile="Interface\\DialogFrame\\UI-DialogBox-Background",
+                     edgeFile="Interface\\DialogFrame\\UI-DialogBox-Border",
+                     edgeSize=12, insets={left=3,right=3,top=3,bottom=3} })
+    dp:SetBackdropColor(0.05, 0.05, 0.1, 0.85)
+    dp:SetBackdropBorderColor(0.4, 0.6, 1, 0.7)
     do
-        local bg = dp:CreateTexture(nil,"BACKGROUND"); bg:SetAllPoints(); bg:SetAtlas("ChallengeMode-guild-background"); bg:SetAlpha(0.4)
-        local h = dp:CreateFontString(nil,"ARTWORK","GameFontNormalMed2"); h:SetText("Season Dungeons"); h:SetPoint("TOPLEFT",12,-7)
-        local d = dp:CreateTexture(nil,"ARTWORK"); d:SetSize(356,9); d:SetAtlas("ChallengeMode-RankLineDivider",false); d:SetPoint("TOP",0,-20)
+        local h = dp:CreateFontString(nil,"ARTWORK","GameFontNormalMed2"); h:SetText("Season Dungeons"); h:SetPoint("TOPLEFT",8,-6)
+        local d = dp:CreateTexture(nil,"ARTWORK"); d:SetSize(244,1); d:SetPoint("TOP",0,-18); d:SetColorTexture(0.4,0.6,1,0.5)
         local rows = {}
         for i = 1, 8 do
-            local row = CreateFrame("Frame",nil,dp); row:SetSize(175,22)
+            local row = CreateFrame("Frame",nil,dp); row:SetSize(120,22)
             local col = (i-1)%2
-            if i==1 then row:SetPoint("TOPLEFT",d,"BOTTOMLEFT",col*180+4,-4)
+            if i==1 then row:SetPoint("TOPLEFT",d,"BOTTOMLEFT",col*128+4,-4)
             elseif col==0 then row:SetPoint("TOPLEFT",rows[i-2],"BOTTOMLEFT",0,-2)
-            else row:SetPoint("TOPLEFT",rows[i-1],"TOPRIGHT",5,0) end
-            -- Glow background (hidden by default, shown when party has this key)
-            local glow = row:CreateTexture(nil,"BACKGROUND")
-            glow:SetAllPoints(); glow:SetColorTexture(1, 0.84, 0, 0.18); glow:Hide(); row.glow=glow
-            -- Gold left-edge accent
-            local accent = row:CreateTexture(nil,"BORDER")
-            accent:SetSize(2,22); accent:SetPoint("LEFT"); accent:SetColorTexture(1,0.84,0,0.9); accent:Hide(); row.accent=accent
+            else row:SetPoint("TOPLEFT",rows[i-1],"TOPRIGHT",8,0) end
+            local glow = row:CreateTexture(nil,"BACKGROUND"); glow:SetAllPoints(); glow:SetColorTexture(1,0.84,0,0.18); glow:Hide(); row.glow=glow
+            local accent = row:CreateTexture(nil,"BORDER"); accent:SetSize(2,22); accent:SetPoint("LEFT"); accent:SetColorTexture(1,0.84,0,0.9); accent:Hide(); row.accent=accent
             local ico = row:CreateTexture(nil,"ARTWORK"); ico:SetSize(16,16); ico:SetPoint("LEFT",4,0); row.icon=ico
-            local ns = row:CreateFontString(nil,"ARTWORK","GameFontNormal"); ns:SetWidth(100); ns:SetJustifyH("LEFT"); ns:SetPoint("LEFT",ico,"RIGHT",4,0); ns:SetWordWrap(false); row.nameStr=ns
-            local ls = row:CreateFontString(nil,"ARTWORK","GameFontHighlight"); ls:SetWidth(36); ls:SetJustifyH("RIGHT"); ls:SetPoint("RIGHT",-2,0); row.levelStr=ls
-            -- Who has the key (shown on glowing rows)
-            local hs = row:CreateFontString(nil,"ARTWORK","GameFontNormalSmall"); hs:SetWidth(175); hs:SetJustifyH("CENTER"); hs:SetPoint("TOP",row,"BOTTOM",0,-1); hs:Hide(); row.holderStr=hs
+            local ns = row:CreateFontString(nil,"ARTWORK","GameFontNormal"); ns:SetWidth(60); ns:SetJustifyH("LEFT"); ns:SetPoint("LEFT",ico,"RIGHT",3,0); ns:SetWordWrap(false); row.nameStr=ns
+            local ls = row:CreateFontString(nil,"ARTWORK","GameFontHighlight"); ls:SetWidth(28); ls:SetJustifyH("RIGHT"); ls:SetPoint("RIGHT",-2,0); row.levelStr=ls
+            local hs = row:CreateFontString(nil,"ARTWORK","GameFontNormalSmall"); hs:SetWidth(120); hs:SetJustifyH("CENTER"); hs:SetPoint("TOP",row,"BOTTOM",0,-1); hs:Hide(); row.holderStr=hs
             row:Hide(); rows[i]=row
         end
         dp.rows=rows
     end
     dp:Hide(); dungeonPanel=dp
+
+    -- Wheel button below the dungeon panel
+    local wheelBtn = CreateFrame("Button", nil, sidebar, "UIPanelButtonTemplate")
+    wheelBtn:SetSize(180, 26)
+    wheelBtn:SetPoint("TOPLEFT", dp, "BOTTOMLEFT", 0, -8)
+    wheelBtn:SetText("Keystone Wheel")
+    wheelBtn:SetScript("OnClick", OpenWheel)
 
     hooksecurefunc(cf,"Update",function()
         local oMap=C_MythicPlus.GetOwnedKeystoneChallengeMapID(); local oLv=C_MythicPlus.GetOwnedKeystoneLevel()
@@ -434,7 +455,7 @@ local function BuildWheelFrame()
     end)
 end
 
-local function OpenWheel()
+OpenWheel = function()
     BuildWheelFrame()
     if wheelFrame:IsShown() then wheelFrame:Hide() else wheelFrame:Show() end
 end
@@ -511,7 +532,7 @@ local function BuildSettingsTab()
             astralOK and "|cFF00FF00loaded|r" or "|cFFAAAAAAnot loaded|r"))
     end)
 
-    API.RegisterTab("Keystones", f, function() if f:IsShown() then f:GetScript("OnShow")(f) end end, 72, nil, 4)
+    API.RegisterTab("Keystones", f, function() if f:IsShown() then f:GetScript("OnShow")(f) end end, 72, nil, 5)
 end
 
 -- ── Slash ─────────────────────────────────────────────────────────────────────

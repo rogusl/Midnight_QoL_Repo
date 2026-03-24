@@ -272,15 +272,43 @@ local function CheckPetReminder(reason)
     if not PET_CLASSES[API.playerClass] then return end
     -- Don't fire while mounted or flying — pet is dismissed by design
     if IsMounted() then return end
-    -- Don't fire in combat — pets can be temporarily dismissed by mechanics
-    -- and Hunter pets auto-dismiss/resummon around certain combat events
-    if InCombatLockdown() then return end
     -- If the pet exists but spec hasn't been populated yet, stay silent —
     -- PET_SPECIALIZATION_CHANGED will fire once the data is ready.
     if IsPetSpecPending() then return end
     ShowPetReminderOverlay(not UnitExists("pet"))
 end
 API.CheckPetReminder = CheckPetReminder
+
+-- ── In-combat pet nag: repeat sound every 10s until pet is summoned ────────────
+local petNagTimer = nil
+
+local function StopPetNag()
+    if petNagTimer then petNagTimer:Cancel(); petNagTimer = nil end
+end
+
+local function StartPetNag()
+    StopPetNag()
+    if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then return end
+    if not PET_CLASSES[API.playerClass] then return end
+    if IsMounted() then return end
+    if UnitExists("pet") then return end
+    local function nag()
+        -- Stop if we left combat, pet appeared, or feature was disabled
+        if not InCombatLockdown() or UnitExists("pet") or IsMounted()
+            or not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then
+            StopPetNag(); return
+        end
+        -- Re-read DB each tick so sound changes take effect immediately
+        local db = BuffAlertDB
+        if db.petReminderSound then
+            API.PlayCustomSound(db.petReminderSound, db.petReminderSoundIsID)
+        else PlaySound(SOUNDKIT.RAID_WARNING or 8959) end
+        -- Also nudge the overlay so it stays visible / resets its hide timer
+        ShowPetReminderOverlay(false)
+        petNagTimer = C_Timer.NewTimer(10, nag)
+    end
+    petNagTimer = C_Timer.NewTimer(10, nag)
+end
 
 -- ── Layout handle provider ─────────────────────────────────────────────────────
 API.RegisterLayoutHandles(function()
@@ -341,6 +369,7 @@ qolEvents:RegisterEvent("UNIT_PET")
 qolEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
 qolEvents:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
 qolEvents:RegisterEvent("PLAYER_REGEN_ENABLED")
+qolEvents:RegisterEvent("PLAYER_REGEN_DISABLED")
 
 -- Poll for pet spec up to maxTries times, 1s apart.
 -- Stops as soon as GetPetSpecialization() returns a valid ID.
@@ -375,6 +404,8 @@ qolEvents:SetScript("OnEvent", function(self, event, ...)
         local unit = ...
         if unit == "player" and PET_CLASSES[API.playerClass] then
             if IsMounted() then return end
+            -- Pet appeared — kill the nag regardless of combat state
+            if UnitExists("pet") then StopPetNag() end
             if InCombatLockdown() then return end
             if IsPetSpecPending() then
                 -- Spec data isn't ready yet — poll until it is
@@ -393,7 +424,16 @@ qolEvents:SetScript("OnEvent", function(self, event, ...)
         end
     elseif event == "PLAYER_SPECIALIZATION_CHANGED" then
         CheckPetReminder("spec change")
+    elseif event == "PLAYER_REGEN_DISABLED" then
+        -- Entered combat — start nagging every 10s if pet is missing
+        if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then return end
+        if not PET_CLASSES[API.playerClass] then return end
+        if not IsMounted() and not UnitExists("pet") then
+            ShowPetReminderOverlay(true)
+            StartPetNag()
+        end
     elseif event == "PLAYER_REGEN_ENABLED" then
+        StopPetNag()
         -- Only remind on leaving combat if the pet is actually missing
         if not (BuffAlertDB and BuffAlertDB.petReminderEnabled) then return end
         if not PET_CLASSES[API.playerClass] then return end

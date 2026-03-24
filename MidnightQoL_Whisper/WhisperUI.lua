@@ -155,7 +155,7 @@ end)
 API.RegisterTab("Whisper", whisperFrame, function()
     SyncWhisperUI()
     addWhisperBtn:Show()
-end, 80, nil, 4)
+end, 80, nil, 8)
 
 -- Hide add button when leaving tab
 local _origUpdateAddButtons = API.UpdateAddButtons

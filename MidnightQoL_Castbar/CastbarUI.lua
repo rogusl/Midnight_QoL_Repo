@@ -205,4 +205,4 @@ local logoutFrame = CreateFrame("Frame")
 logoutFrame:RegisterEvent("PLAYER_LOGOUT")
 logoutFrame:SetScript("OnEvent", function() HarvestValues() end)
 
-API.RegisterTab("Castbar", cf, OnActivate, 70, nil, 4)
+API.RegisterTab("Castbar", cf, OnActivate, 70, nil, 4) -- priority 4

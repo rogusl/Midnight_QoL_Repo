@@ -9,6 +9,7 @@ move-folders:
   MidnightQoL_QoL: MidnightQoL_QoL
   MidnightQoL_ResourceBars: MidnightQoL_ResourceBars
   MidnightQoL_Whisper: MidnightQoL_Whisper
+  MidnightQoL_Keystones: MidnightQoL_Keystone
 
 ignore:
   - .pkgmeta

@@ -363,11 +363,7 @@ local function RefreshBossWarnUI()
 
     bwStatusLbl:ClearAllPoints()
     bwStatusLbl:SetPoint("LEFT", bwTestBtn, "RIGHT", 10, 0)
-    if API.bossFrameHooked then
-        bwStatusLbl:SetText("|cFF00FF00● hooked: " .. API.bossFrameHooked .. "|r  (use /mqlbosssniff to find frame name if silent)")
-    else
-        bwStatusLbl:SetText("|cFFFF4444● frame not found yet|r  — use /mqlbosssniff during a boss warning to identify the frame")
-    end
+    bwStatusLbl:SetText("|cFF00FF00● listening for ENCOUNTER_WARNING|r")
 
     -- Load saved sound
     local db = BuffAlertDB
@@ -390,6 +386,6 @@ OnAlertsTabActivate = function()
     RefreshBossWarnUI()
 end
 
-API.RegisterTab("Alerts", contentFrame, OnAlertsTabActivate, 80, OnAlertsTabDeactivate, 2)
+API.RegisterTab("Alerts", contentFrame, OnAlertsTabActivate, 80, OnAlertsTabDeactivate, 2) -- priority 2
 -- Ensure buttons start hidden (RebuildTabBar activates tab 1/General on load)
 OnAlertsTabDeactivate()

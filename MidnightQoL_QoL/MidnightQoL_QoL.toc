@@ -1,20 +1,18 @@
 ## Interface: 120001
 ## Title: Midnight QoL — QoL
-## Notes: Pet reminder, pull timer, break timer, /rc ready check, experience bar, auto-quest, UI fade sliders, bag upgrade, and General tab toggles.
+## Notes: Pet reminder, pull timer, break timer, /rc ready check, experience bar, auto-quest, UI fade sliders, and General tab toggles.
 ## Author: Rogus
-<<<<<<< HEAD
-## Version: 1.0.38
-=======
-## Version: 1.0.38
->>>>>>> ad93054fd28f5543fffd3cbbcaa94c2d4d3942fe
+## Version: 2.2.0
 ## Dependencies: MidnightQoL
+
+Templates.xml
 
 ExperienceBar.lua
 RepBar.lua
 AutoQuest.lua
 QoL.lua
 QoLUI.lua
-BagUpgrade.lua
 SellConfirm.lua
 WoWSettings.lua
 Utility.lua
+PreyBar.lua

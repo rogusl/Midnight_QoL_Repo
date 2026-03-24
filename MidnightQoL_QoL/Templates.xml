@@ -1,0 +1,16 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+  <!--
+    MidnightQoLItemButtonTemplate
+
+    Inherits ContainerFrameItemButtonTemplate so Blizzard's own SECURE click
+    handler (UseContainerItem / ContainerFrameItemButton_OnClick) is used.
+
+    We must NOT set any OnClick in Lua — that would make the frame unsecure and
+    cause ADDON_ACTION_FORBIDDEN.  Instead we populate btn:SetID(slotID) and
+    parent each button to a frame whose GetID() returns the bagID.  The secure
+    template reads those two values itself when the player clicks.
+  -->
+  <ItemButton name="MidnightQoLItemButtonTemplate" virtual="true"
+              inherits="ContainerFrameItemButtonTemplate">
+  </ItemButton>
+</Ui>

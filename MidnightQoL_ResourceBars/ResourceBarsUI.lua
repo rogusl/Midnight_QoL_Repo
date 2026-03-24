@@ -900,4 +900,4 @@ local function OnResourcesTabDeactivate()
     -- nothing to hide — no floating buttons
 end
 
-API.RegisterTab("Resources", contentFrame, OnResourcesTabActivate, 90, OnResourcesTabDeactivate, 3)
+API.RegisterTab("Resources", contentFrame, OnResourcesTabActivate, 90, OnResourcesTabDeactivate, 6)

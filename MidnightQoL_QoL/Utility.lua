@@ -339,8 +339,12 @@ local function UpdateBrezDisplay()
 
     -- Hand startTime + duration to the CooldownFrame.
     -- It drives the swipe, edge flash, and countdown numbers entirely in C++.
+    -- NOTE: As of the March 24 2026 hotfix, SetCooldown no longer accepts secret values
+    -- from tainted code during M+/raids/PvP encounters. We pcall so it fails silently
+    -- in those contexts rather than throwing a Lua error — the charge count alpha trick
+    -- above continues to work regardless.
     if startTime and duration and duration > 0 then
-        brezCD:SetCooldown(startTime, duration)
+        pcall(function() brezCD:SetCooldown(startTime, duration) end)
     else
         brezCD:Clear()
     end
@@ -468,7 +472,7 @@ API.RegisterLayoutHandles(function()
         -- Preview: show 2 charges and a running cooldown swipe
         brezCount:SetFormattedText("%d", 2)
         brezCount:SetAlpha(1.0)
-        brezCD:SetCooldown(GetTime(), 599)  -- 10-min cooldown preview
+        pcall(function() brezCD:SetCooldown(GetTime(), 599) end)  -- 10-min cooldown preview
 
         local ox, oy = FrameCenterOffset(brezFrame)
         table.insert(handles, {

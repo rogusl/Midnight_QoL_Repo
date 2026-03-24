@@ -233,18 +233,25 @@ whisperEvents:SetScript("OnEvent", function(self, event, ...)
         -- Helper: force a fully detainted copy of a string.
         -- string.format("%s", ...) alone does not strip taint in all WoW builds;
         -- rebuilding char-by-char forces a new, clean string allocation.
+        -- Use string.len() instead of # operator to avoid taint comparison errors,
+        -- and type() instead of == "" to guard nil/tainted values safely.
         local function Detaint(s)
-            if not s or s == "" then return "" end
+            if type(s) ~= "string" or string.len(s) == 0 then return "" end
             local chars = {}
-            for i = 1, #s do chars[i] = string.sub(s, i, i) end
+            for i = 1, string.len(s) do chars[i] = string.sub(s, i, i) end
             return table.concat(chars)
         end
+        -- Wrap each extraction in pcall so a tainted argument can never bubble up.
+        local function SafeDetaint(v)
+            local ok, result = pcall(Detaint, v)
+            return (ok and type(result) == "string") and result or ""
+        end
 
-        local message  = Detaint(tostring((...) or ""))
-        local sender   = Detaint(tostring(select(2,...) or ""))
-        local guid     = Detaint(tostring(select(3,...) or ""))
-        local unknown1 = Detaint(tostring(select(4,...) or ""))
-        local unknown2 = Detaint(tostring(select(5,...) or ""))
+        local message  = SafeDetaint((...))
+        local sender   = SafeDetaint(select(2,...))
+        local guid     = SafeDetaint(select(3,...))
+        local unknown1 = SafeDetaint(select(4,...))
+        local unknown2 = SafeDetaint(select(5,...))
 
         local senderName = sender
         if senderName=="" then senderName=unknown1 end

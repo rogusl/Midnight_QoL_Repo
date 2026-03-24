@@ -240,6 +240,7 @@ npNote:SetWidth(420)
 
 local ACTION_BAR_FRAMES = {
     "MainMenuBar",
+    "ActionBar1",
     "MultiBarBottomLeft", "MultiBarBottomRight",
     "MultiBarLeft", "MultiBarRight",
     "MultiBar5", "MultiBar6", "MultiBar7",
@@ -292,10 +293,15 @@ modulesDesc:SetTextColor(0.6,0.6,0.6)
 
 -- Each entry: { tab label, DB-friendly key, display label }
 local MODULE_TABS = {
-    { label="Layouts",   key="Layouts",   display="Layouts"   },
     { label="Alerts",    key="Alerts",    display="Alerts"    },
-    { label="Resources", key="Resources", display="Resources" },
+    { label="Bags",      key="Bags",      display="Bags"      },
     { label="Castbar",   key="Castbar",   display="Castbar"   },
+    { label="Keystones", key="Keystones", display="Keystones" },
+    { label="Layouts",   key="Layouts",   display="Layouts"   },
+    { label="Resources", key="Resources", display="Resources" },
+    { label="SmartSwap", key="SmartSwap", display="SmartSwap" },
+    { label="Whisper",   key="Whisper",   display="Whisper"   },
+    { label="Defaults",  key="Defaults",  display="Defaults"  },
     { label="Profiles",  key="Profiles",  display="Profiles"  },
 }
 

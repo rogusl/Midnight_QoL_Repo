@@ -1462,77 +1462,25 @@ end
 
 -- ══════════════════════════════════════════════════════════════════════════════
 -- Boss Warning Sound System
--- Hooks OnShow on Blizzard's boss warning popup frame and plays a custom sound.
--- Use /mqlbosssniff while in an encounter to identify the correct frame name.
+-- Listens for ENCOUNTER_WARNING and plays a custom sound.
 -- ══════════════════════════════════════════════════════════════════════════════
 
-local BOSS_WARNING_FRAMES = {
-    "BossWarningMinor",
-    "BossWarningMedium",
-    "BossWarningCritical",
-}
-
-local bossSniffActive = false
-local bossFramesHooked = {}
-
-local function HookBossWarningFrame(frameName)
-    local f = _G[frameName]
-    if not f or not f.HookScript then return false end
-    f:HookScript("OnShow", function()
-        local db = BuffAlertDB and BuffAlertDB.bossWarnSound
-        if db and db.sound then
-            API.PlayCustomSound(db.sound, db.soundIsID)
-        end
-    end)
-    bossFramesHooked[#bossFramesHooked+1] = frameName
-    API.bossFrameHooked = table.concat(bossFramesHooked, ", ")
-    API.Debug("[BossSounds] Hooked OnShow on " .. frameName)
-    return true
-end
-
--- Try to hook on login once frames exist
-local bossHookFrame = CreateFrame("Frame")
-bossHookFrame:RegisterEvent("PLAYER_ENTERING_WORLD")
-bossHookFrame:SetScript("OnEvent", function(self, event)
-    local anyHooked = false
-    for _, name in ipairs(BOSS_WARNING_FRAMES) do
-        if HookBossWarningFrame(name) then anyHooked = true end
-    end
-    if anyHooked then self:UnregisterAllEvents() end
-end)
-
--- ── Sniffer: /mqlbosssniff ────────────────────────────────────────────────────
--- Watches every global frame's OnShow for ~30s and prints names.
--- Use this in an encounter to find the boss warning frame name.
-SLASH_MQLBOSSSNIFF1 = "/mqlbosssniff"
-SlashCmdList["MQLBOSSSNIFF"] = function()
-    if bossSniffActive then
-        bossSniffActive = false
-        print("|cFF00CCFF[MidnightQoL]|r Boss frame sniffer |cFFAAAAAAdisabled|r")
+local bossWarnFrame = CreateFrame("Frame")
+bossWarnFrame:RegisterEvent("PLAYER_LOGIN")
+bossWarnFrame:SetScript("OnEvent", function(self, event, encounterID, message, displayType)
+    if event == "PLAYER_LOGIN" then
+        self:UnregisterEvent("PLAYER_LOGIN")
+        self:RegisterEvent("ENCOUNTER_WARNING")
+        API.Debug("[BossSounds] registered ENCOUNTER_WARNING after login")
         return
     end
-    bossSniffActive = true
-    print("|cFF00CCFF[MidnightQoL]|r Boss frame sniffer |cFFFFFF00ON|r — trigger a boss warning and watch chat (type again to stop)")
-
-    -- Walk all current globals and hook OnShow on anything frame-like
-    local hooked = {}
-    for name, val in pairs(_G) do
-        if type(name) == "string" and type(val) == "table" then
-            local ok, hasHook = pcall(function() return type(val.HookScript) == "function" end)
-            if ok and hasHook then
-                pcall(function()
-                    val:HookScript("OnShow", function()
-                        if bossSniffActive then
-                            print("|cFFFF8800[BossSniff]|r OnShow: " .. name)
-                        end
-                    end)
-                    hooked[#hooked+1] = name
-                end)
-            end
-        end
+    -- event == "ENCOUNTER_WARNING"
+    local db = BuffAlertDB and BuffAlertDB.bossWarnSound
+    if db and db.sound then
+        API.PlayCustomSound(db.sound, db.soundIsID)
     end
-    API.Debug("[BossSounds] Sniffer hooked " .. #hooked .. " frames")
-end
+    API.Debug(string.format("[BossSounds] ENCOUNTER_WARNING — encounterID=%s displayType=%s", tostring(encounterID), tostring(displayType)))
+end)
 
 -- Expose DB key so BuffAlertsUI can wire up the sound picker
 -- BuffAlertDB.bossWarnSound = { sound = ..., soundIsID = ... }

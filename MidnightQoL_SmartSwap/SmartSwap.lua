@@ -593,6 +593,7 @@ alsEvents:SetScript("OnEvent", function(self, event)
             deferredActivity = false
             TryActivitySwap()
         end
+
     end
 end)
 
@@ -1051,7 +1052,7 @@ alsTabEvents:SetScript("OnEvent", function(self, event)
     if API.IsTabEnabled and not API.IsTabEnabled("SmartSwap") then return end
     C_Timer.After(0.1, function()
         if not API.RegisterTab then return end
-        API.RegisterTab("SmartSwap", alsFrame, RefreshPanel, 70, nil, 2)
+        API.RegisterTab("SmartSwap", alsFrame, RefreshPanel, 70, nil, 7)
     end)
 end)
 

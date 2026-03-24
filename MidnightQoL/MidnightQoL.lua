@@ -1016,7 +1016,7 @@ coreEvents:SetScript("OnEvent",function(self,event,...)
 
         -- Register Profiles tab after all sub-addons have loaded
         if API._profilesFrameReady then
-            RegisterTab("Profiles", API._profilesFrame, nil, 90, nil, 5)
+            RegisterTab("Profiles", API._profilesFrame, nil, 90, nil, 10)
         end
 
         -- Show setup guide automatically on first install, after an update,

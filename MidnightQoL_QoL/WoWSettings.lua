@@ -250,6 +250,8 @@ local function BuildUI()
     f.statusLbl = statusLbl
     y = y - 22
 
+    -- SyncUI is forward-declared; defined below after all row widgets exist.
+    local SyncUI
     saveBtn:SetScript("OnClick", function()
         CaptureSettings()
         local db = GetDB()
@@ -258,7 +260,7 @@ local function BuildUI()
                 and ("|cFF88FF88Snapshot saved: " .. db.savedAt .. "|r")
                 or  "|cFFFF4444Save failed — try again.|r")
         end
-        SyncUI()
+        if SyncUI then SyncUI() end
     end)
 
     -- Gameplay
@@ -385,7 +387,7 @@ local function BuildUI()
     end
 
     if API.RegisterTab then
-        API.RegisterTab("Defaults", f, SyncUI, 75, nil, 5)
+        API.RegisterTab("Defaults", f, SyncUI, 75, nil, 9)
     end
     SyncUI()
 end
