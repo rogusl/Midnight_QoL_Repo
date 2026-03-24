@@ -2,7 +2,7 @@
 ## Title: Midnight QoL — Bags
 ## Notes: Custom sub-bag panel with collapsible sections and upgrade badge overlays on bag/loot items.
 ## Author: Rogus
-## Version: 2.2.0
+## Version: 1.0.42
 ## Dependencies: MidnightQoL
 
 BagUpgrade.lua
