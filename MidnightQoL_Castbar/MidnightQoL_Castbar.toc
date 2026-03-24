@@ -2,7 +2,11 @@
 ## Title: Midnight QoL — Castbar
 ## Notes: Player castbar replacement with per-state colors, channel ticks, GCD spark, latency zone, and interrupt flash.
 ## Author: Rogus
-## Version: 2.2.0
+<<<<<<< HEAD
+## Version: 1.0.40
+=======
+## Version: 1.0.40
+>>>>>>> ad93054fd28f5543fffd3cbbcaa94c2d4d3942fe
 ## Dependencies: MidnightQoL
 ## SavedVariables: CastbarDB
 

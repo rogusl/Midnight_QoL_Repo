@@ -2,7 +2,11 @@
 ## Title: Midnight QoL |cFFFFAAAACore|r
 ## Notes: Core addon — main window, tab system, layout editor, spec profiles, profile copy tool.
 ## Author: Rogus
-## Version: 2.2.0
+<<<<<<< HEAD
+## Version: 1.0.40
+=======
+## Version: 1.0.40
+>>>>>>> ad93054fd28f5543fffd3cbbcaa94c2d4d3942fe
 ## SavedVariables: BuffAlertDB
 ## SavedVariablesPerAccount: MidnightQoLAccountDB
 ## X-Curse-Project-ID: 1472751
