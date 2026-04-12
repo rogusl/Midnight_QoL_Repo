@@ -1,0 +1,57 @@
+## Interface: 120001
+## Title: RogUI |cFFFFAAAACore|r
+## Notes: Core engine, UI framework, and utilities for RogUI addons
+## Author: Rogus
+## Version: 3.0.1
+## SavedVariables: RogUIDB, RogUICastbarDB
+## SavedVariablesPerAccount: RogUIAccountDB
+## X-Curse-Project-ID: 1472751
+## OptionalDeps: MidnightQoL, LibDeflate, AceComm-3.0, AceSerializer-3.0, ChatThrottleLib, RaiderIO
+
+Libs/libs.xml
+
+# Core API
+API.lua
+
+# Manifests (must load before Core.lua)
+ImagesList.lua
+SoundsList.lua
+
+# Core Engine
+Core.lua
+
+# Widget and helper systems
+Widgets.lua
+SetupGuide.lua
+
+# Spell Lists
+Spells/ExternalBuffSpells.lua
+Spells/WarriorSpells.lua
+Spells/PaladinSpells.lua
+Spells/HunterSpells.lua
+Spells/RogueSpells.lua
+Spells/PriestSpells.lua
+Spells/DruidSpells.lua
+Spells/ShamanSpells.lua
+Spells/MageSpells.lua
+Spells/WarlockSpells.lua
+Spells/DeathKnightSpells.lua
+Spells/DemonHunterSpells.lua
+Spells/MonkSpells.lua
+Spells/EvokerSpells.lua
+
+# Module loader system
+ModuleLoader.lua
+
+# QoL modules
+QoL/ExperienceBar.lua
+QoL/RepBar.lua
+QoL/PreyBar.lua
+QoL/AutoQuest.lua
+QoL/QoL.lua
+QoL/KeybindDisplay.lua
+QoL/QoLUI.lua
+QoL/SellConfirm.lua
+QoL/WoWSettings.lua
+QoL/Utility.lua
+QoL/Templates.xml

@@ -1,1184 +1,2158 @@
--- ============================================================
--- MidnightQoL.lua  (Core)
--- Main window, minimap button, layout mode, spec profile
--- save/load, profile copy system, sound engine, Setup Guide.
--- ============================================================
 
-local API = MidnightQoLAPI
-local _errorLog = {}  -- shared between Debug() and the error handler; populated at bottom of file
-
--- ── Debug helper ──────────────────────────────────────────────────────────────
-local function Debug(msg)
-    if API.DEBUG then
-        local line = date("%H:%M:%S") .. " [DEBUG] " .. tostring(msg)
-        print("|cFF00FF00[MidnightQoL DEBUG]|r " .. tostring(msg))
-        -- Also write to the file log if it's active
-        if _errorLog then
-            _errorLog[#_errorLog + 1] = line
-        end
-    end
-end
-API.Debug = Debug
-
--- ── Name normalisation helpers ────────────────────────────────────────────────
-local function NormalizeName(name)
-    if not name or name == "" then return "" end
-    local s = tostring(name):match("^([^%-]+)") or tostring(name)
-    return s:match("^%s*(.-)%s*$"):lower()
-end
-local function NormalizeBNName(name)
-    if not name or name == "" then return "" end
-    return tostring(name):match("^%s*(.-)%s*$"):lower()
-end
-API.NormalizeName   = NormalizeName
-API.NormalizeBNName = NormalizeBNName
-
--- ── Sound engine ──────────────────────────────────────────────────────────────
-local customSoundFiles = (type(SoundsList) == "table") and SoundsList or {}
-
-local function GetAvailableSounds()
-    local sounds = {
-        {name = "Quest Complete", path = 12743, isID = true},
-        {name = "Default Alert",  path = 12743, isID = true},
-    }
-    for _, entry in ipairs(customSoundFiles) do
-        local filename, displayName
-        if type(entry) == "table" then
-            filename    = entry.file
-            displayName = entry.displayName or entry.file
-        else
-            filename    = entry
-            displayName = entry
-        end
-        local soundPath = "Interface/AddOns/MidnightQoL/Sounds/" .. filename .. ".ogg"
-        table.insert(sounds, {name = displayName, path = soundPath, isID = false})
-    end
-    return sounds
-end
-
-local customImageFiles = (type(ImagesList) == "table") and ImagesList or {}
-
-local function GetAvailableImages()
-    local images = {
-        {name = "Spell Icon (auto)",     path = "spell_icon",         isSpellIcon = true},
-        {name = "── Common Icons ──",    path = nil,                  isSeparator = true},
-        {name = "Warning Diamond",       path = "Interface\\DialogFrame\\UI-Dialog-Icon-AlertOther"},
-        {name = "Skull",                 path = "Interface\\TargetingFrame\\UI-TargetingFrame-Skull"},
-        {name = "Raid Target - Star",    path = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_1"},
-        {name = "Raid Target - Circle",  path = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_2"},
-        {name = "Raid Target - Diamond", path = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_3"},
-        {name = "Raid Target - Triangle",path = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_4"},
-        {name = "Raid Target - Moon",    path = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_5"},
-        {name = "Raid Target - Square",  path = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_6"},
-        {name = "Raid Target - Cross",   path = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_7"},
-        {name = "Raid Target - Skull",   path = "Interface\\TargetingFrame\\UI-RaidTargetingIcon_8"},
-        {name = "Interrupt (red X)",     path = "Interface\\Icons\\Ability_Kick"},
-        {name = "Defensive CD",          path = "Interface\\Icons\\Spell_Shadow_NetherProtection"},
-        {name = "Heal",                  path = "Interface\\Icons\\Spell_Holy_FlashHeal"},
-        {name = "Lightning",             path = "Interface\\Icons\\Spell_Nature_Lightning"},
-        {name = "Fire",                  path = "Interface\\Icons\\Spell_Fire_Fireball02"},
-        {name = "Frost",                 path = "Interface\\Icons\\Spell_Frost_FrostBolt02"},
-        {name = "Shadow",                path = "Interface\\Icons\\Spell_Shadow_ShadowBolt"},
-        {name = "Arcane",                path = "Interface\\Icons\\Spell_Holy_MagicalSentry"},
-        {name = "Nature",                path = "Interface\\Icons\\Spell_Nature_Starfall"},
-        {name = "Bloodlust / Heroism",   path = "Interface\\Icons\\Spell_Nature_Bloodlust"},
-        {name = "Power Infusion",        path = "Interface\\Icons\\Spell_Holy_PowerInfusion"},
-        {name = "── Addon Images ──",    path = nil,                  isSeparator = true},
-    }
-    for _, entry in ipairs(customImageFiles) do
-        local path, displayName
-        if type(entry) == "table" then
-            path        = entry.file
-            displayName = entry.displayName or entry.file
-        else
-            path        = entry
-            displayName = entry
-        end
-        if not path:find("\\") and not path:find("/") then
-            path = "Interface/AddOns/MidnightQoL/Images/" .. path
-        end
-        table.insert(images, {name = displayName, path = path})
-    end
-    return images
-end
-
-local function PlayCustomSound(soundPath, isID)
-    if not soundPath then return end
-    local ok, err = pcall(function()
-        local numericID = tonumber(soundPath)
-        if numericID then PlaySound(numericID, "SFX", false)
-        else PlaySoundFile(tostring(soundPath), "SFX") end
-    end)
-    if not ok then Debug("PlayCustomSound error: " .. tostring(err)) end
-end
-
-API.PlayCustomSound    = PlayCustomSound
-API.GetAvailableSounds = GetAvailableSounds
-API.GetAvailableImages = GetAvailableImages
-
--- ── Spec profile system ────────────────────────────────────────────────────────
-local function GetSpecProfileKey()
-    -- Per-character, per-spec profile key so e.g. Brewmaster and Warlock
-    -- each get their own independent resource bar layouts.
-    return (API.playerClass or "UNKNOWN") .. "_" .. tostring(API.currentSpecID or 0)
-end
-
-local function GetOrCreateSpecProfile(key)
-    if not BuffAlertDB then return nil end
-    if not BuffAlertDB.specProfiles then BuffAlertDB.specProfiles = {} end
-    local k = key or GetSpecProfileKey()
-    if not BuffAlertDB.specProfiles[k] then
-        BuffAlertDB.specProfiles[k] = {}
-    end
-    return BuffAlertDB.specProfiles[k]
-end
-
-local function SaveSpecProfile()
-    local profile = GetOrCreateSpecProfile()
-    if not profile then return end
-    for _, cb in ipairs(API._saveCallbacks) do
-        local ok, err = pcall(cb, profile)
-        if not ok then Debug("SaveSpecProfile callback error: " .. tostring(err)) end
-    end
-    Debug("Saved spec profile: " .. GetSpecProfileKey())
-end
-
-local function LoadSpecProfile(key)
-    local profile = GetOrCreateSpecProfile(key)
-    if not profile then return end
-    for _, cb in ipairs(API._loadCallbacks) do
-        local ok, err = pcall(cb, profile)
-        if not ok then Debug("LoadSpecProfile callback error: " .. tostring(err)) end
-    end
-    Debug("Loaded spec profile: " .. (key or GetSpecProfileKey()))
-end
-
-local function RegisterProfileCallbacks(saveFunc, loadFunc)
-    if saveFunc then table.insert(API._saveCallbacks, saveFunc) end
-    if loadFunc then table.insert(API._loadCallbacks, loadFunc) end
-end
-
-API.GetSpecProfileKey        = GetSpecProfileKey
-API.GetOrCreateSpecProfile   = GetOrCreateSpecProfile
-API.SaveSpecProfile          = SaveSpecProfile
-API.LoadSpecProfile          = LoadSpecProfile
-API.RegisterProfileCallbacks  = RegisterProfileCallbacks
-API.RegisterPreSaveCallback   = function(fn)
-    table.insert(API._preSaveCallbacks, fn)
-end
-
--- ── Profile deep-copy helper ──────────────────────────────────────────────────
-local function DeepCopy(orig)
-    local copy
-    if type(orig) == "table" then
-        copy = {}
-        for k, v in pairs(orig) do
-            copy[DeepCopy(k)] = DeepCopy(v)
-        end
-        setmetatable(copy, getmetatable(orig))
-    else
-        copy = orig
-    end
-    return copy
-end
-API.DeepCopy = DeepCopy
-
--- ── Main window ────────────────────────────────────────────────────────────────
-local mainFrame = CreateFrame("Frame", "MidnightQoLMainFrame", UIParent, "BackdropTemplate")
-mainFrame:SetSize(920, 600)
-mainFrame:SetPoint("CENTER", UIParent, "CENTER", 0, -50)
-mainFrame:SetBackdrop({
-    bgFile   = "Interface/DialogFrame/UI-DialogBox-Background",
-    edgeFile = "Interface/DialogFrame/UI-DialogBox-Border",
-    tile = true, tileSize = 16, edgeSize = 16,
-    insets = {left = 11, right = 12, top = 12, bottom = 11}
-})
-mainFrame:SetBackdropColor(0.1, 0.1, 0.1, 0.8)
-mainFrame:SetMovable(true); mainFrame:EnableMouse(true)
-mainFrame:RegisterForDrag("LeftButton"); mainFrame:SetClampedToScreen(true)
-mainFrame:SetScript("OnDragStart", function(self) self:StartMoving() end)
-mainFrame:SetScript("OnDragStop", function(self)
-    self:StopMovingOrSizing()
-    if BuffAlertDB then
-        local point, _, relPoint, x, y = self:GetPoint()
-        BuffAlertDB.mainFramePos = {point=point, relPoint=relPoint, x=x, y=y}
-    end
-end)
-mainFrame:Hide()
-
-local title = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-title:SetPoint("TOPLEFT", 20, -20); title:SetText("Midnight QoL Configuration")
-
-local closeBtn = CreateFrame("Button", nil, mainFrame, "UIPanelCloseButton")
-closeBtn:SetPoint("TOPRIGHT", mainFrame, "TOPRIGHT", -5, -5)
-
--- Scroll frame (hosts whichever content frame is active)
-local scrollFrame = CreateFrame("ScrollFrame", "MidnightQoLScrollFrame", mainFrame, "UIPanelScrollFrameTemplate")
-scrollFrame:SetPoint("TOPLEFT", 20, -90)
-scrollFrame:SetPoint("BOTTOMRIGHT", -35, 50)
-
--- ── Tab system ─────────────────────────────────────────────────────────────────
--- Each entry: { label, frame, onActivate, onDeactivate, width }
-local tabRegistry     = {}
-local tabButtons      = {}
-local currentTabIndex = 1
-
-local function ActivateTabByIndex(i)
-    -- Call deactivate on old tab
-    if tabRegistry[currentTabIndex] and tabRegistry[currentTabIndex].onDeactivate then
-        tabRegistry[currentTabIndex].onDeactivate()
-    end
-    -- Hide all registered frames
-    for _, entry in ipairs(tabRegistry) do
-        if entry.frame then entry.frame:Hide() end
-    end
-    -- Highlight correct button
-    for j, btn in ipairs(tabButtons) do
-        if j == i then
-            btn:SetNormalFontObject("GameFontHighlightSmall")
-            btn:LockHighlight()
-        else
-            btn:SetNormalFontObject("GameFontNormalSmall")
-            btn:UnlockHighlight()
-        end
-    end
-    currentTabIndex = i
-    local entry = tabRegistry[i]
-    if not entry then return end
-    entry.frame:SetParent(scrollFrame)
-    entry.frame:SetPoint("TOPLEFT", 0, 0)
-    scrollFrame:SetScrollChild(entry.frame)
-    entry.frame:Show()
-    if entry.onActivate then entry.onActivate() end
-    -- Notify add-button manager
-    if API.UpdateAddButtons then API.UpdateAddButtons(i) end
-end
-
-local function RebuildTabBar()
-    -- Deactivate current tab before rebuilding so its buttons/state are cleaned up
-    if tabRegistry[currentTabIndex] and tabRegistry[currentTabIndex].onDeactivate then
-        tabRegistry[currentTabIndex].onDeactivate()
-    end
-    for _, btn in ipairs(tabButtons) do btn:Hide(); btn:SetParent(nil) end
-    tabButtons = {}
-    local TAB_GAP = 8
-    local nextX   = 20
-    for i, entry in ipairs(tabRegistry) do
-        local w   = entry.width or 80
-        local btn = CreateFrame("Button", "MidnightQoLTab" .. i, mainFrame, "GameMenuButtonTemplate")
-        btn:SetSize(w, 25)
-        btn:SetPoint("TOPLEFT", mainFrame, "TOPLEFT", nextX, -50)
-        btn:SetText(entry.label)
-        btn.tabIndex = i
-        btn:SetScript("OnClick", function(self)
-            ActivateTabByIndex(self.tabIndex)
-        end)
-        tabButtons[i] = btn
-        if entry.hidden then btn:Hide() else nextX = nextX + w + TAB_GAP end
-    end
-    -- Re-activate current tab to fix highlight state
-    if #tabRegistry > 0 then
-        ActivateTabByIndex(math.min(currentTabIndex, #tabRegistry))
-    end
-end
-
-local function RegisterTab(label, frame, onActivate, widthOverride, onDeactivate, priority)
-    table.insert(tabRegistry, {
-        label        = label,
-        frame        = frame,
-        onActivate   = onActivate,
-        onDeactivate = onDeactivate,
-        width        = widthOverride,
-        priority     = priority or 50,
-        hidden       = (BuffAlertDB and BuffAlertDB.tabsEnabled and BuffAlertDB.tabsEnabled[label] == false) or false,
-    })
-    -- Sort by priority (lower number = further left)
-    table.sort(tabRegistry, function(a, b) return (a.priority or 50) < (b.priority or 50) end)
-    RebuildTabBar()
-    -- First tab registered becomes active
-    if #tabRegistry == 1 then
-        ActivateTabByIndex(1)
-    end
-end
-
-API.RegisterTab        = RegisterTab
-API.ActivateTabByIndex = ActivateTabByIndex
-API.GetCurrentTabIndex = function() return currentTabIndex end
-API.GetTabRegistry     = function() return tabRegistry end
-
--- Hide/show a tab by label. If the active tab is hidden, falls back to tab 1.
-function API.SetTabEnabled(label, enabled)
-    for i, entry in ipairs(tabRegistry) do
-        if entry.label == label then
-            entry.hidden = not enabled
-            if tabButtons[i] then
-                if enabled then tabButtons[i]:Show() else tabButtons[i]:Hide() end
-            end
-            -- If we just hid the active tab, jump to General (index 1)
-            if not enabled and currentTabIndex == i then
-                ActivateTabByIndex(1)
-            end
-            -- Persist
-            if BuffAlertDB then
-                BuffAlertDB.tabsEnabled = BuffAlertDB.tabsEnabled or {}
-                BuffAlertDB.tabsEnabled[label] = enabled
-            end
-            return
-        end
-    end
-end
-
-function API.IsTabEnabled(label)
-    if BuffAlertDB and BuffAlertDB.tabsEnabled and BuffAlertDB.tabsEnabled[label] ~= nil then
-        return BuffAlertDB.tabsEnabled[label]
-    end
-    return true  -- default on
-end
-
--- ── Bottom bar ─────────────────────────────────────────────────────────────────
--- Save button sits at BOTTOMRIGHT; add-buttons from sub-addons sit at BOTTOMLEFT.
--- Both live at y=50 so they clear the scroll frame edge.
-local saveBtn = CreateFrame("Button", "MidnightQoLSaveBtn", mainFrame, "GameMenuButtonTemplate")
-saveBtn:SetSize(100, 25)
-saveBtn:SetPoint("BOTTOMRIGHT", mainFrame, "BOTTOMRIGHT", -20, 15)
-saveBtn:SetText("Save")
-saveBtn:SetScript("OnClick", function()
-    -- Run pre-save callbacks first (e.g. harvest UI → configs)
-    for _, cb in ipairs(API._preSaveCallbacks) do pcall(cb) end
-    SaveSpecProfile()
-    mainFrame:Hide()
-end)
-
-local setupLinkBtn = CreateFrame("Button", "MidnightQoLSetupLinkBtn", mainFrame, "GameMenuButtonTemplate")
-setupLinkBtn:SetSize(120, 25)
-setupLinkBtn:SetPoint("BOTTOMLEFT", mainFrame, "BOTTOMLEFT", 20, 15)
-setupLinkBtn:SetText("Setup Guide")
-
-local layoutModeBtn = CreateFrame("Button", "MidnightQoLLayoutModeBtn", mainFrame, "GameMenuButtonTemplate")
-layoutModeBtn:SetSize(120, 25)
-layoutModeBtn:SetPoint("LEFT", setupLinkBtn, "RIGHT", 6, 0)
-layoutModeBtn:SetText("Edit Layout")
-
-local specInfoLabel = mainFrame:CreateFontString(nil, "OVERLAY", "GameFontNormalSmall")
-specInfoLabel:SetPoint("LEFT", layoutModeBtn, "RIGHT", 14, 0)
-specInfoLabel:SetWidth(240); specInfoLabel:SetJustifyH("LEFT")
-specInfoLabel:SetTextColor(0.75, 0.75, 0.75, 1)
-specInfoLabel:SetText("Active Spec: loading...")
-API.specInfoLabel = specInfoLabel
-
--- ── Setup Guide panel ─────────────────────────────────────────────────────────
-local setupPanel = CreateFrame("Frame", "MidnightQoLSetupPanel", UIParent, "BackdropTemplate")
-setupPanel:SetSize(500, 400); setupPanel:SetPoint("CENTER")
-setupPanel:SetFrameStrata("DIALOG")
-setupPanel:SetBackdrop({
-    bgFile   = "Interface/DialogFrame/UI-DialogBox-Background",
-    edgeFile = "Interface/DialogFrame/UI-DialogBox-Border",
-    tile = true, tileSize = 16, edgeSize = 16,
-    insets = {left = 8, right = 8, top = 8, bottom = 8}
-})
-setupPanel:SetBackdropColor(0.05, 0.05, 0.1, 0.97)
-setupPanel:SetMovable(true); setupPanel:EnableMouse(true)
-setupPanel:RegisterForDrag("LeftButton")
-setupPanel:SetScript("OnDragStart", function(self) self:StartMoving() end)
-setupPanel:SetScript("OnDragStop",  function(self) self:StopMovingOrSizing() end)
-setupPanel:Hide()
-
-do
-    local t = setupPanel:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
-    t:SetPoint("TOP",0,-12); t:SetText("Setup Guide")
-    local cb = CreateFrame("Button",nil,setupPanel,"UIPanelCloseButton"); cb:SetPoint("TOPRIGHT",-4,-4)
-    local scr = CreateFrame("ScrollFrame","MidnightQoLSetupScroll",setupPanel,"UIPanelScrollFrameTemplate")
-    scr:SetPoint("TOPLEFT",12,-36); scr:SetPoint("BOTTOMRIGHT",-30,12)
-    local con = CreateFrame("Frame","MidnightQoLSetupContent",scr)
-    con:SetSize(440,1); scr:SetScrollChild(con)
-    local txt = con:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    txt:SetPoint("TOPLEFT",4,-4); txt:SetWidth(432)
-    txt:SetJustifyH("LEFT"); txt:SetJustifyV("TOP"); txt:SetWordWrap(true)
-    local guideText = (type(SETUP_GUIDE_TEXT)=="string" and SETUP_GUIDE_TEXT~="")
-        and SETUP_GUIDE_TEXT or "|cFFFFD700Setup Guide|r\n\nSetupGuide.lua not found or empty."
-    txt:SetText(guideText)
-    setupLinkBtn:SetScript("OnClick", function()
-        if setupPanel:IsShown() then setupPanel:Hide()
-        else setupPanel:Show(); con:SetHeight(math.max(400, txt:GetStringHeight()+20)) end
-    end)
-end
-
--- ── Layout mode ────────────────────────────────────────────────────────────────
-local layoutHandles = {}
-local layoutActive  = false
-
-local layoutDimmer = CreateFrame("Frame", "MidnightQoLLayoutDimmer", UIParent)
-layoutDimmer:SetAllPoints(UIParent); layoutDimmer:SetFrameStrata("MEDIUM")
-layoutDimmer:EnableMouse(false); layoutDimmer:Hide()
-local dimTex = layoutDimmer:CreateTexture(nil,"BACKGROUND")
-dimTex:SetAllPoints(); dimTex:SetColorTexture(0,0,0,0.45)
-
-local layoutDoneBtn = CreateFrame("Button","MidnightQoLLayoutDoneBtn",UIParent,"GameMenuButtonTemplate")
-layoutDoneBtn:SetSize(120,30); layoutDoneBtn:SetPoint("TOP",UIParent,"TOP",0,-10)
-layoutDoneBtn:SetFrameStrata("FULLSCREEN_DIALOG"); layoutDoneBtn:SetText("[OK]  Done Editing"); layoutDoneBtn:Hide()
-
-local function GetOrCreateHandle(i)
-    if layoutHandles[i] then return layoutHandles[i] end
-    local h = CreateFrame("Frame","MidnightQoLLayoutHandle"..i,UIParent,"BackdropTemplate")
-    h:SetFrameStrata("FULLSCREEN_DIALOG")
-    h:SetBackdrop({
-        bgFile   = "Interface/DialogFrame/UI-DialogBox-Background",
-        edgeFile = "Interface/Tooltips/UI-Tooltip-Border",
-        tile=true, tileSize=8, edgeSize=8, insets={left=2,right=2,top=2,bottom=2}
-    })
-    h:SetBackdropColor(0.1,0.3,0.6,0.75); h:SetBackdropBorderColor(0.6,0.9,1,0.9)
-    h:SetMovable(true); h:EnableMouse(true); h:RegisterForDrag("LeftButton"); h:SetClampedToScreen(true)
-    local icon = h:CreateTexture(nil,"ARTWORK"); icon:SetSize(32,32); icon:SetPoint("LEFT",6,0); h.icon=icon
-    local lbl  = h:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    lbl:SetPoint("LEFT",44,4); lbl:SetWidth(150); lbl:SetJustifyH("LEFT"); h.lbl=lbl
-    local pos  = h:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    pos:SetPoint("LEFT",44,-8); pos:SetWidth(150); pos:SetJustifyH("LEFT"); pos:SetTextColor(0.7,0.9,1,1); h.posLbl=pos
-    h:SetSize(210,46)
-    h:SetScript("OnDragStart",function(self) self.isDragging=true; self:StartMoving() end)
-    h:SetScript("OnDragStop",function(self)
-        self:StopMovingOrSizing(); self.isDragging=false
-        local cx=UIParent:GetWidth()/2; local cy=UIParent:GetHeight()/2
-        local ox=math.floor(self:GetLeft()+self:GetWidth()/2-cx+0.5)
-        local oy=math.floor(self:GetBottom()+self:GetHeight()/2-cy+0.5)
-        self.posLbl:SetText("x="..ox.."  y="..oy)
-        if self.previewOverlay and self.previewOverlay:IsShown() then
-            self.previewOverlay:ClearAllPoints(); self.previewOverlay:SetPoint("CENTER",UIParent,"CENTER",ox,oy) end
-        if self.liveIconTarget then
-            local icon=_G[self.liveIconTarget]
-            if icon then icon:ClearAllPoints(); icon:SetPoint("CENTER",UIParent,"CENTER",ox,oy) end end
-        if self.liveFrameRef and self.liveFrameRef.ClearAllPoints then
-            self.liveFrameRef:ClearAllPoints(); self.liveFrameRef:SetPoint("CENTER",UIParent,"CENTER",ox,oy) end
-        if self.saveCallback then self.saveCallback(ox,oy) end
-    end)
-
-    -- ── Resize handle (bottom-right corner) ───────────────────────────────────
-    local resizeGrip = CreateFrame("Button",nil,h)
-    resizeGrip:SetSize(14,14); resizeGrip:SetPoint("BOTTOMRIGHT",h,"BOTTOMRIGHT",0,0)
-    resizeGrip:SetFrameLevel(h:GetFrameLevel()+2)
-    local resizeTex = resizeGrip:CreateTexture(nil,"OVERLAY")
-    resizeTex:SetAllPoints(resizeGrip); resizeTex:SetColorTexture(0.8,0.9,1,0.7)
-    -- Tooltip
-    resizeGrip:SetScript("OnEnter",function(self)
-        GameTooltip:SetOwner(self,"ANCHOR_TOPLEFT")
-        GameTooltip:AddLine("Drag to resize",0.8,0.9,1); GameTooltip:Show()
-    end)
-    resizeGrip:SetScript("OnLeave",function() GameTooltip:Hide() end)
-    -- Drag to resize the live frame
-    resizeGrip:SetScript("OnMouseDown",function(self)
-        resizeGrip._resizing=true
-        resizeGrip._startX, resizeGrip._startY = GetCursorPosition()
-        local sc = UIParent:GetEffectiveScale()
-        resizeGrip._startX = resizeGrip._startX / sc
-        resizeGrip._startY = resizeGrip._startY / sc
-        local lf = h.liveFrameRef
-        resizeGrip._origW = lf and lf:GetWidth()  or nil
-        resizeGrip._origH = lf and lf:GetHeight() or nil
-    end)
-    resizeGrip:SetScript("OnMouseUp",function(self)
-        if not resizeGrip._resizing then return end
-        resizeGrip._resizing=false
-        -- Persist final size through saveCallback with nil position to signal resize-only
-        local lf = h.liveFrameRef
-        if lf and h.resizeCallback then
-            h.resizeCallback(lf:GetWidth(), lf:GetHeight())
-        end
-    end)
-    resizeGrip:SetScript("OnUpdate",function(self)
-        if not resizeGrip._resizing then return end
-        local sc = UIParent:GetEffectiveScale()
-        local cx, cy = GetCursorPosition()
-        cx, cy = cx/sc, cy/sc
-        local dx = cx - resizeGrip._startX
-        local dy = resizeGrip._startY - cy  -- inverted Y
-        local newW = math.max(20, (resizeGrip._origW or 200) + dx)
-        local newH = math.max(8,  (resizeGrip._origH or 20)  + dy)
-        local lf = h.liveFrameRef
-        if lf then lf:SetSize(newW, newH) end
-        h.posLbl:SetText(string.format("%.0fx%.0f", newW, newH))
-    end)
-    h.resizeGrip = resizeGrip
-    h:SetScript("OnUpdate",function(self)
-        if not self.isDragging then return end
-        local cx=UIParent:GetWidth()/2; local cy=UIParent:GetHeight()/2
-        local ox=self:GetLeft()+self:GetWidth()/2-cx; local oy=self:GetBottom()+self:GetHeight()/2-cy
-        if self.previewOverlay and self.previewOverlay:IsShown() then
-            self.previewOverlay:ClearAllPoints(); self.previewOverlay:SetPoint("CENTER",UIParent,"CENTER",ox,oy) end
-        if self.liveIconTarget then
-            local icon=_G[self.liveIconTarget]
-            if icon then icon:ClearAllPoints(); icon:SetPoint("CENTER",UIParent,"CENTER",ox,oy) end end
-        if self.liveFrameRef and self.liveFrameRef.ClearAllPoints then
-            self.liveFrameRef:ClearAllPoints(); self.liveFrameRef:SetPoint("CENTER",UIParent,"CENTER",ox,oy) end
-    end)
-    layoutHandles[i]=h; return h
-end
-
-local function HideAllHandles()
-    for _,h in ipairs(layoutHandles) do
-        h.previewOverlay=nil; h.liveIconTarget=nil; h.liveFrameRef=nil; h.resizeCallback=nil
-        if h.resizeGrip then h.resizeGrip._resizing=false end
-        h:Hide() end
-end
-
-local function EnterLayoutMode()
-    if layoutActive then return end
-    layoutActive=true; layoutDimmer:Show(); layoutDoneBtn:Show()
-    local handleIdx=0
-    local function ShowHandle(label,iconTex,ox,oy,saveCallback)
-        handleIdx=handleIdx+1; local h=GetOrCreateHandle(handleIdx)
-        h:ClearAllPoints(); h:SetPoint("CENTER",UIParent,"CENTER",ox,oy)
-        h.lbl:SetText(label); h.posLbl:SetText("x="..ox.."  y="..oy)
-        h.saveCallback=saveCallback
-        h.icon:SetTexture(iconTex or "Interface\\Icons\\INV_Misc_QuestionMark"); h.icon:Show(); h:Show()
-        return h
-    end
-    for _,provider in ipairs(API._layoutProviders) do
-        local ok,handles=pcall(provider)
-        if ok and handles then
-            for _,hd in ipairs(handles) do
-                local h=ShowHandle(hd.label,hd.iconTex,hd.ox or 0,hd.oy or 0,hd.saveCallback)
-                if hd.liveIconTarget then h.liveIconTarget=hd.liveIconTarget end
-                if hd.liveFrameRef   then h.liveFrameRef=hd.liveFrameRef   end
-                if hd.resizeCallback then h.resizeCallback=hd.resizeCallback end
-                if hd.previewFunc    then
-                    local ov=hd.previewFunc()
-                    if ov then
-                        h.previewOverlay=ov
-                        -- If no live frame was provided, use the preview as the resize target
-                        if not h.liveFrameRef then h.liveFrameRef=ov end
-                    end
-                end
-            end
-        end
-    end
-    layoutDoneBtn:SetText(handleIdx<=0 and "[OK]  Done (add alerts with textures to position)" or "[OK]  Done Editing")
-end
-
-local function ExitLayoutMode()
-    if not layoutActive then return end
-    layoutActive=false; layoutDimmer:Hide(); layoutDoneBtn:Hide(); HideAllHandles()
-    if API.HideAlertPreviews then API.HideAlertPreviews() end
-    SaveSpecProfile()
-end
-
-layoutDoneBtn:SetScript("OnClick",ExitLayoutMode)
-layoutModeBtn:SetScript("OnClick",EnterLayoutMode)
-API.EnterLayoutMode=EnterLayoutMode; API.ExitLayoutMode=ExitLayoutMode
-API.IsLayoutMode=function() return layoutActive end
-
-local function RegisterLayoutHandles(providerFunc)
-    table.insert(API._layoutProviders,providerFunc)
-end
-API.RegisterLayoutHandles=RegisterLayoutHandles
-
--- ── Minimap button ─────────────────────────────────────────────────────────────
-local minimapBtn=CreateFrame("Button","MidnightQoLMinimapBtn",Minimap)
-minimapBtn:SetSize(32,32); minimapBtn:SetFrameStrata("MEDIUM"); minimapBtn:SetFrameLevel(8)
-minimapBtn:SetClampedToScreen(true)
-do
-    local bg=minimapBtn:CreateTexture(nil,"BACKGROUND"); bg:SetSize(32,32)
-    bg:SetPoint("CENTER",minimapBtn,"CENTER",0,0); bg:SetColorTexture(0,0,0,0.55)
-    local ic=minimapBtn:CreateTexture(nil,"ARTWORK"); ic:SetSize(26,26)
-    ic:SetPoint("CENTER",minimapBtn,"CENTER",0,0)
-    ic:SetTexture("Interface/AddOns/MidnightQoL/Images/minimap_icon")
-    ic:SetTexCoord(0.08,0.92,0.08,0.92)
-    local hl=minimapBtn:CreateTexture(nil,"HIGHLIGHT"); hl:SetAllPoints(minimapBtn); hl:SetColorTexture(1,1,1,0.15)
-end
-
-local minimapDragging=false
-local function UpdateMinimapPos(angle,radius)
-    radius=math.max(60,math.min(110,radius or 80)); angle=angle or 225
-    if BuffAlertDB then BuffAlertDB.minimapAngle=angle; BuffAlertDB.minimapRadius=radius end
-    minimapBtn:ClearAllPoints()
-    minimapBtn:SetPoint("CENTER",Minimap,"CENTER",
-        math.cos(math.rad(angle))*radius, math.sin(math.rad(angle))*radius)
-end
-
-minimapBtn:SetScript("OnClick",function(self,button)
-    if button=="RightButton" then EnterLayoutMode()
-    else
-        if mainFrame:IsShown() then mainFrame:Hide()
-        else
-            mainFrame:Show()
-            if tabButtons[1] then ActivateTabByIndex(1) end
-        end
-    end
-end)
-minimapBtn:SetScript("OnEnter",function(self)
-    GameTooltip:SetOwner(self,"ANCHOR_LEFT")
-    GameTooltip:AddLine("Midnight QoL",1,1,0)
-    GameTooltip:AddLine("|cFFAAAAFF Left-click|r  Open settings",0.8,0.8,0.8)
-    GameTooltip:AddLine("|cFFAAAAFF Right-click|r  Edit Layout",0.8,0.8,0.8)
-    GameTooltip:AddLine("|cFFAAAAFF Drag|r  Reposition",0.8,0.8,0.8)
-    GameTooltip:Show()
-end)
-minimapBtn:SetScript("OnLeave",function() GameTooltip:Hide() end)
-minimapBtn:EnableMouse(true)
-minimapBtn:SetScript("OnMouseDown",function(self,button)
-    if button=="LeftButton" then
-        minimapDragging=false
-        local startX, startY = GetCursorPosition()
-        self:SetScript("OnUpdate",function()
-            local cx,cy=GetCursorPosition()
-            local scale=UIParent:GetEffectiveScale()
-            -- Only begin drag after moving 4 pixels — preserves click detection
-            if not minimapDragging then
-                local dist = math.sqrt((cx-startX)^2+(cy-startY)^2)
-                if dist < 4 then return end
-                minimapDragging = true
-            end
-            local mx,my=Minimap:GetCenter()
-            cx,cy=cx/scale,cy/scale
-            UpdateMinimapPos(math.deg(math.atan2(cy-my,cx-mx)),math.sqrt((cx-mx)^2+(cy-my)^2))
-        end)
-    end
-end)
-minimapBtn:SetScript("OnMouseUp",function(self,button)
-    if button=="LeftButton" then minimapDragging=false; self:SetScript("OnUpdate",nil) end
-end)
-
--- Hidden state checkboxes (exist for HookScript compatibility)
-local buffAlertEnabledCheckbox=CreateFrame("CheckButton","MidnightQoLBuffAlertEnabledCheckbox",mainFrame,"UICheckButtonTemplate")
-buffAlertEnabledCheckbox:SetChecked(false); buffAlertEnabledCheckbox:Hide()
-local whisperIndicatorEnabledCheckbox=CreateFrame("CheckButton","MidnightQoLWhisperIndicatorEnabledCheckbox",mainFrame,"UICheckButtonTemplate")
-whisperIndicatorEnabledCheckbox:SetChecked(false); whisperIndicatorEnabledCheckbox:Hide()
-local minimapBtnCheckbox=CreateFrame("CheckButton","MidnightQoLMinimapBtnCheckbox",mainFrame,"UICheckButtonTemplate")
-minimapBtnCheckbox:SetChecked(true); minimapBtnCheckbox:Hide()  -- minimap button stays on by default
-minimapBtnCheckbox:SetScript("OnClick",function(self)
-    local show=self:GetChecked()
-    if BuffAlertDB then BuffAlertDB.minimapBtnShown=show end
-    if show then minimapBtn:Show() else minimapBtn:Hide() end
-end)
-local resourceBarsEnabledCheckbox=CreateFrame("CheckButton","MidnightQoLResourceBarsEnabledCheckbox",mainFrame,"UICheckButtonTemplate")
-resourceBarsEnabledCheckbox:SetChecked(false); resourceBarsEnabledCheckbox:Hide()
-API.buffAlertEnabledCheckbox        = buffAlertEnabledCheckbox
-API.whisperIndicatorEnabledCheckbox = whisperIndicatorEnabledCheckbox
-API.minimapBtnCheckbox              = minimapBtnCheckbox
-API.resourceBarsEnabledCheckbox     = resourceBarsEnabledCheckbox
-
-mainFrame:HookScript("OnHide",function()
-    if setupPanel then setupPanel:Hide() end
-    if layoutActive then ExitLayoutMode() end
-end)
-mainFrame:HookScript("OnShow",function()
-    if layoutActive then ExitLayoutMode() end
-end)
-
--- ── Profiles tab ──────────────────────────────────────────────────────────────
--- Lets you copy layout/alert settings from any saved character spec into the
--- current spec profile, or into any other spec profile.
-local profilesFrame = CreateFrame("Frame","MidnightQoLProfilesFrame",UIParent)
-profilesFrame:SetSize(880,500); profilesFrame:Hide()
-
-do
-    local LABEL_COLOR   = "|cFFFFD700"
-    local WARNING_COLOR = "|cFFFF8800"
-
-    -- ── Header ──
-    local hdr = profilesFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
-    hdr:SetPoint("TOPLEFT",0,-4)
-    hdr:SetText(LABEL_COLOR.."Profile Copy Tool|r")
-
-    local desc = profilesFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    desc:SetPoint("TOPLEFT",0,-28); desc:SetWidth(860)
-    desc:SetJustifyH("LEFT"); desc:SetWordWrap(true)
-    desc:SetTextColor(0.8,0.8,0.8,1)
-    desc:SetText(
-        "Copy alert settings, positions, sounds, and resource bar configuration from any saved "..
-        "spec profile into another. Useful for setting up a new character or spec using the same layout as an existing one.\n"..
-        WARNING_COLOR.."Warning: copying overwrites the destination — this cannot be undone.|r"
-    )
-
-    -- ── Source picker ──
-    local srcLabel = profilesFrame:CreateFontString(nil,"OVERLAY","GameFontNormal")
-    srcLabel:SetPoint("TOPLEFT",0,-84); srcLabel:SetText("Copy FROM:")
-
-    local srcDropBtn = CreateFrame("Button","CSProfileSrcDrop",profilesFrame,"GameMenuButtonTemplate")
-    srcDropBtn:SetSize(280,24); srcDropBtn:SetPoint("TOPLEFT",0,-106)
-    srcDropBtn:SetText("(select source profile)")
-    srcDropBtn.selectedKey = nil
-
-    -- ── Destination picker ──
-    local dstLabel = profilesFrame:CreateFontString(nil,"OVERLAY","GameFontNormal")
-    dstLabel:SetPoint("TOPLEFT",0,-142); dstLabel:SetText("Copy INTO:")
-
-    local dstDropBtn = CreateFrame("Button","CSProfileDstDrop",profilesFrame,"GameMenuButtonTemplate")
-    dstDropBtn:SetSize(280,24); dstDropBtn:SetPoint("TOPLEFT",0,-164)
-    dstDropBtn:SetText("Current spec (active)")
-    dstDropBtn.selectedKey = nil   -- nil = current spec
-
-    -- ── What to copy ──
-    local optLabel = profilesFrame:CreateFontString(nil,"OVERLAY","GameFontNormal")
-    optLabel:SetPoint("TOPLEFT",0,-204); optLabel:SetText("What to copy:")
-
-    local function MakeCheck(name, parent, text, anchorTo, yOff)
-        local cb = CreateFrame("CheckButton","CSProfileCopy"..name,parent,"UICheckButtonTemplate")
-        cb:SetSize(22,22); cb:SetPoint("TOPLEFT",anchorTo,"BOTTOMLEFT",0,yOff)
-        cb:SetChecked(true)
-        local lbl = _G["CSProfileCopy"..name.."Text"]; if lbl then lbl:SetText(text) end
-        return cb
-    end
-
-    local alertsCb    = CreateFrame("CheckButton","CSProfileCopyAlerts",profilesFrame,"UICheckButtonTemplate")
-    alertsCb:SetSize(22,22); alertsCb:SetPoint("TOPLEFT",0,-226); alertsCb:SetChecked(true)
-    local alertsLbl=_G["CSProfileCopyAlertsText"]; if alertsLbl then alertsLbl:SetText("Buff / Debuff alerts") end
-
-    local positionsCb = CreateFrame("CheckButton","CSProfileCopyPositions",profilesFrame,"UICheckButtonTemplate")
-    positionsCb:SetSize(22,22); positionsCb:SetPoint("TOPLEFT",alertsCb,"BOTTOMLEFT",0,-2); positionsCb:SetChecked(true)
-    local posLbl=_G["CSProfileCopyPositionsText"]; if posLbl then posLbl:SetText("Alert & overlay positions (X/Y)") end
-
-    local soundsCb = CreateFrame("CheckButton","CSProfileCopySounds",profilesFrame,"UICheckButtonTemplate")
-    soundsCb:SetSize(22,22); soundsCb:SetPoint("TOPLEFT",positionsCb,"BOTTOMLEFT",0,-2); soundsCb:SetChecked(true)
-    local sndLbl=_G["CSProfileCopySoundsText"]; if sndLbl then sndLbl:SetText("Sounds") end
-
-    local resourcesCb = CreateFrame("CheckButton","CSProfileCopyResources",profilesFrame,"UICheckButtonTemplate")
-    resourcesCb:SetSize(22,22); resourcesCb:SetPoint("TOPLEFT",soundsCb,"BOTTOMLEFT",0,-2); resourcesCb:SetChecked(true)
-    local resLbl=_G["CSProfileCopyResourcesText"]; if resLbl then resLbl:SetText("Resource bar layout & colors") end
-
-    local whispersCb = CreateFrame("CheckButton","CSProfileCopyWhispers",profilesFrame,"UICheckButtonTemplate")
-    whispersCb:SetSize(22,22); whispersCb:SetPoint("TOPLEFT",resourcesCb,"BOTTOMLEFT",0,-2); whispersCb:SetChecked(false)
-    local wLbl=_G["CSProfileCopyWhispersText"]; if wLbl then wLbl:SetText("Whisper list (personal — disabled by default)") end
-
-    -- ── Status label ──
-    local statusLabel = profilesFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-    statusLabel:SetPoint("TOPLEFT",whispersCb,"BOTTOMLEFT",0,-18); statusLabel:SetWidth(500)
-    statusLabel:SetJustifyH("LEFT"); statusLabel:SetWordWrap(true)
-    statusLabel:SetText("")
-
-    -- ── Copy button ──
-    local copyBtn = CreateFrame("Button","CSProfileCopyBtn",profilesFrame,"GameMenuButtonTemplate")
-    copyBtn:SetSize(160,26); copyBtn:SetPoint("TOPLEFT",statusLabel,"BOTTOMLEFT",0,-14)
-    copyBtn:SetText("Copy Profile →")
-
-    -- ── Dropdown popup (shared for src and dst) ──────────────────────────────
-    local dropPopup = CreateFrame("Frame","CSProfileDropPopup",UIParent,"BackdropTemplate")
-    dropPopup:SetSize(300,300); dropPopup:SetFrameStrata("TOOLTIP")
-    dropPopup:SetBackdrop({bgFile="Interface/DialogFrame/UI-DialogBox-Background",
-        edgeFile="Interface/DialogFrame/UI-DialogBox-Border",
-        tile=true,tileSize=16,edgeSize=16,insets={left=4,right=4,top=4,bottom=4}})
-    dropPopup:SetBackdropColor(0.08,0.08,0.12,0.98); dropPopup:Hide()
-    dropPopup.targetBtn = nil
-
-    local dropScroll=CreateFrame("ScrollFrame","CSProfileDropScroll",dropPopup,"UIPanelScrollFrameTemplate")
-    dropScroll:SetPoint("TOPLEFT",8,-8); dropScroll:SetPoint("BOTTOMRIGHT",-28,8)
-    local dropContent=CreateFrame("Frame","CSProfileDropContent",dropScroll)
-    dropContent:SetSize(260,1); dropScroll:SetScrollChild(dropContent)
-
-    local function BuildDropList(forBtn, includeCurrentSpec)
-        -- Clear old rows
-        for _,c in ipairs({dropContent:GetChildren()}) do c:Hide() end
-        local rows = {}
-        -- "Current spec" option for dst only
-        if includeCurrentSpec then
-            table.insert(rows,{key=nil, label="|cFF00FF00Current spec (active)|r"})
-        end
-        -- All saved profiles
-        if BuffAlertDB and BuffAlertDB.specProfiles then
-            local sortedKeys = {}
-            for k in pairs(BuffAlertDB.specProfiles) do table.insert(sortedKeys,k) end
-            table.sort(sortedKeys)
-            for _,k in ipairs(sortedKeys) do
-                -- Make a friendly display: e.g. "WARRIOR_1" → "Warrior – Arms"
-                local class, specID = k:match("^(.-)_(%d+)$")
-                local display = k
-                if class and specID then
-                    local specNum = tonumber(specID)
-                    local classNice = class:sub(1,1):upper() .. class:sub(2):lower()
-                    display = classNice .. "  |cFFAAAAAA(" .. k .. ")|r"
-                end
-                table.insert(rows,{key=k, label=display})
-            end
-        end
-        -- Render
-        local ROW_H = 24
-        for i, row in ipairs(rows) do
-            local btn=CreateFrame("Button",nil,dropContent)
-            btn:SetSize(255,ROW_H); btn:SetPoint("TOPLEFT",0,-(i-1)*ROW_H)
-            local hl=btn:CreateTexture(nil,"HIGHLIGHT"); hl:SetAllPoints(); hl:SetColorTexture(1,1,1,0.12)
-            local lbl=btn:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
-            lbl:SetPoint("LEFT",4,0); lbl:SetJustifyH("LEFT"); lbl:SetText(row.label)
-            local capRow=row; local capBtn=forBtn
-            btn:SetScript("OnClick",function()
-                capBtn.selectedKey = capRow.key
-                if capRow.key == nil then
-                    capBtn:SetText("|cFF00FF00Current spec (active)|r")
-                else
-                    capBtn:SetText(capRow.key)
-                end
-                dropPopup:Hide()
-            end)
-        end
-        dropContent:SetHeight(math.max(1,#rows*ROW_H))
-    end
-
-    local function OpenDropFor(btn, includeCurrentSpec)
-        if dropPopup:IsShown() and dropPopup.targetBtn==btn then dropPopup:Hide(); return end
-        dropPopup.targetBtn=btn
-        BuildDropList(btn, includeCurrentSpec)
-        dropPopup:ClearAllPoints(); dropPopup:SetPoint("TOPLEFT",btn,"BOTTOMLEFT",0,-4)
-        dropPopup:Show()
-    end
-
-    srcDropBtn:SetScript("OnClick",function(self) OpenDropFor(self,false) end)
-    dstDropBtn:SetScript("OnClick",function(self) OpenDropFor(self,true) end)
-
-    -- ── Deep-copy helpers ────────────────────────────────────────────────────
-    local function CopyAlertList(srcList)
-        local out={}
-        for _,aura in ipairs(srcList) do
-            local copy={}
-            for k,v in pairs(aura) do copy[k]=v end
-            table.insert(out,copy)
-        end
-        return out
-    end
-
-    local function StripPositions(list)
-        for _,aura in ipairs(list) do
-            aura.alertX=nil; aura.alertY=nil
-        end
-    end
-
-    copyBtn:SetScript("OnClick",function()
-        local srcKey = srcDropBtn.selectedKey
-        if not srcKey then
-            statusLabel:SetText("|cFFFF4444Please select a source profile.|r"); return
-        end
-        if not BuffAlertDB or not BuffAlertDB.specProfiles then
-            statusLabel:SetText("|cFFFF4444No saved profiles found.|r"); return
-        end
-        local srcProfile = BuffAlertDB.specProfiles[srcKey]
-        if not srcProfile then
-            statusLabel:SetText("|cFFFF4444Source profile not found.|r"); return
-        end
-
-        local dstKey = dstDropBtn.selectedKey   -- nil = current spec
-        local dstProfile
-        if dstKey then
-            dstProfile = GetOrCreateSpecProfile(dstKey)
-        else
-            dstProfile = GetOrCreateSpecProfile()
-            dstKey     = GetSpecProfileKey()
-        end
-        if not dstProfile then
-            statusLabel:SetText("|cFFFF4444Could not create destination profile.|r"); return
-        end
-
-        local copied = {}
-
-        if alertsCb:GetChecked() then
-            local copyPositions = positionsCb:GetChecked()
-            dstProfile.trackedBuffs     = CopyAlertList(srcProfile.trackedBuffs     or {})
-            dstProfile.trackedDebuffs   = CopyAlertList(srcProfile.trackedDebuffs   or {})
-            dstProfile.trackedExternals = CopyAlertList(srcProfile.trackedExternals or {})
-            if not copyPositions then
-                StripPositions(dstProfile.trackedBuffs)
-                StripPositions(dstProfile.trackedDebuffs)
-                StripPositions(dstProfile.trackedExternals)
-            end
-            table.insert(copied,"alerts")
-        end
-
-        if soundsCb:GetChecked() then
-            dstProfile.generalWhisperSound    = srcProfile.generalWhisperSound
-            dstProfile.generalWhisperSoundIsID = srcProfile.generalWhisperSoundIsID
-            dstProfile.petReminderSound       = srcProfile.petReminderSound
-            dstProfile.petReminderSoundIsID   = srcProfile.petReminderSoundIsID
-            table.insert(copied,"sounds")
-        end
-
-        if resourcesCb:GetChecked() then
-            dstProfile.resourceBars = DeepCopy(srcProfile.resourceBars)
-            table.insert(copied,"resource bars")
-        end
-
-        if whispersCb:GetChecked() then
-            dstProfile.whisperList     = DeepCopy(srcProfile.whisperList or {})
-            dstProfile.whisperEnabled  = srcProfile.whisperEnabled
-            table.insert(copied,"whispers")
-        end
-
-        -- If we copied into the active spec, reload immediately
-        local activeKey = GetSpecProfileKey()
-        if dstKey == activeKey then
-            LoadSpecProfile()
-            if API.RefreshAuraListUI    then API.RefreshAuraListUI() end
-            if API.RefreshWhisperListUI then API.RefreshWhisperListUI() end
-            C_Timer.After(0.1, function()
-                if API.RebuildNameMap then API.RebuildNameMap() end
-            end)
-        end
-
-        if #copied == 0 then
-            statusLabel:SetText("|cFFFF8800Nothing was selected to copy.|r")
-        else
-            statusLabel:SetText(
-                "|cFF00FF00Copied "..table.concat(copied,", ").." from |r"..srcKey..
-                " |cFF00FF00into|r "..(dstKey=="active" and "current spec" or dstKey)..
-                "|cFF00FF00.|r")
-        end
-    end)
-
-    -- Register the Profiles tab (added last so it sits on the right)
-    API._profilesFrameReady = true
-    API._profilesFrame      = profilesFrame
-end
-
--- ── Event handler ─────────────────────────────────────────────────────────────
-local coreEvents = CreateFrame("Frame")
-coreEvents:RegisterEvent("PLAYER_LOGIN")
-coreEvents:RegisterEvent("PLAYER_SPECIALIZATION_CHANGED")
-
-coreEvents:SetScript("OnEvent",function(self,event,...)
-    if event=="PLAYER_LOGIN" then
-        local CURRENT_VERSION = (C_AddOns and C_AddOns.GetAddOnMetadata or GetAddOnMetadata)("MidnightQoL", "Version") or "2.2"
-        local isFirstRun  = (BuffAlertDB == nil)
-        local isUpdate    = (not isFirstRun) and (BuffAlertDB.dbVersion ~= CURRENT_VERSION)
-
-        if isFirstRun then
-            BuffAlertDB={
-                dbVersion=CURRENT_VERSION,
-                specProfiles={}, minimapAngle=225, minimapRadius=80,
-                minimapBtnShown=true, mainFramePos=nil,
-                whisperList={}, whisperEnabled=false, ignoreOutgoingWhispers=true,
-                generalWhisperSound=nil, generalWhisperSoundIsID=false,
-                breakBarR=0.2,breakBarG=0.6,breakBarB=1.0,breakBarX=nil,breakBarY=nil,
-                petReminderEnabled=false,petReminderSize=18,
-                petReminderR=1,petReminderG=0.4,petReminderB=0,petReminderX=0,petReminderY=80,
-                -- All feature modules off by default on fresh install
-                buffDebuffAlertsEnabled=false,
-                whisperIndicatorEnabled=false,
-                resourceBarsEnabled=false,
-                pullTimerEnabled=false,
-                breakTimerEnabled=false,
-                poisonAlertEnabled=false,
-                raidbuffCheckEnabled=false,
-                battlerezEnabled=false,
-                bagUpgradeEnabled=false,
-                sellConfirmEnabled=false,
-                expBarEnabled=false,
-                repBarEnabled=false,
-                alsEnabled=false,
-                wowSettings={},
-                cdMismatchSuppressed=false,
-                uiFadeNameplates=100,uiFadeMinimap=100,uiFadeUnitFrames=100,uiFadeActionBars=100,
-            }
-            -- Also zero out Castbar on first run so its own DB starts disabled
-            CastbarDB = CastbarDB or {}
-            CastbarDB.enabled = false
-        else
-            if not BuffAlertDB.specProfiles then BuffAlertDB.specProfiles={} end
-            if isUpdate then
-                -- Preserve existing settings but stamp new version and
-                -- default any newly-added keys to false (opt-in on update too)
-                local newKeys = {
-                    bagUpgradeEnabled=false,
-                    sellConfirmEnabled=false,
-                    expBarEnabled=false,
-                    repBarEnabled=false,
-                    alsEnabled=false,
-                    expBarHideAtMax=true,
-                    uiFadeActionBars=100,
-                }
-                for k,v in pairs(newKeys) do
-                    if BuffAlertDB[k] == nil then BuffAlertDB[k] = v end
-                end
-                -- Castbar uses its own DB — default enabled to false if newly added
-                CastbarDB = CastbarDB or {}
-                if CastbarDB.enabled == nil then CastbarDB.enabled = false end
-                BuffAlertDB.dbVersion = CURRENT_VERSION
-            end
-        end
-
-        API.playerClass   = select(2,UnitClass("player")) or "UNKNOWN"
-        API.currentSpecID = GetSpecializationInfo(GetSpecialization()) or 0
-
-        buffAlertEnabledCheckbox:SetChecked(BuffAlertDB.buffDebuffAlertsEnabled==true)
-        whisperIndicatorEnabledCheckbox:SetChecked(BuffAlertDB.whisperIndicatorEnabled==true)
-        minimapBtnCheckbox:SetChecked(BuffAlertDB.minimapBtnShown~=false)
-        resourceBarsEnabledCheckbox:SetChecked(BuffAlertDB.resourceBarsEnabled==true)
-        UpdateMinimapPos(BuffAlertDB.minimapAngle or 225,BuffAlertDB.minimapRadius or 80)
-        if BuffAlertDB.minimapBtnShown==false then minimapBtn:Hide() end
-        if BuffAlertDB.mainFramePos then
-            local p=BuffAlertDB.mainFramePos; mainFrame:ClearAllPoints()
-            mainFrame:SetPoint(p.point or "CENTER",UIParent,p.relPoint or "CENTER",p.x or 0,p.y or -50)
-        end
-
-        local specIndex=GetSpecialization and GetSpecialization()
-        local specName=specIndex and select(2,GetSpecializationInfo(specIndex)) or "Unknown"
-        specInfoLabel:SetText("Active Spec: |cFFFFD700"..(API.playerClass or "?").." – "..tostring(specName).."|r")
-
-        LoadSpecProfile()
-
-        -- Restore debug state from saved variable
-        if BuffAlertDB.debugEnabled ~= nil then
-            API.DEBUG = BuffAlertDB.debugEnabled
-        end
-
-        -- Register Profiles tab after all sub-addons have loaded
-        if API._profilesFrameReady then
-            RegisterTab("Profiles", API._profilesFrame, nil, 90, nil, 10)
-        end
-
-        -- Show setup guide automatically on first install, after an update,
-        -- or whenever every module is currently turned off (nothing is active).
-        local function AllModulesOff()
-            local db = BuffAlertDB
-            if not db then return true end
-            return not db.buffDebuffAlertsEnabled
-               and not db.whisperIndicatorEnabled
-               and not db.resourceBarsEnabled
-               and not db.pullTimerEnabled
-               and not db.breakTimerEnabled
-               and not db.poisonAlertEnabled
-               and not db.raidbuffCheckEnabled
-               and not db.battlerezEnabled
-               and not db.bagUpgradeEnabled
-               and not db.sellConfirmEnabled
-               and not db.expBarEnabled
-               and not db.repBarEnabled
-               and not db.alsEnabled
-               and (not CastbarDB or not CastbarDB.enabled)
-        end
-
-        if isFirstRun or isUpdate or AllModulesOff() then
-            C_Timer.After(1, function()
-                local verb = isFirstRun and "installed"
-                          or isUpdate   and ("updated to v"..CURRENT_VERSION)
-                          or "ready"
-                print("|cFF00CCFF[MidnightQoL]|r "..verb.." — all modules are |cFFFFD700off|r. Open the Setup Guide to enable what you need.")
-                if setupPanel then
-                    setupPanel:Show()
-                    mainFrame:Show()
-                    if tabButtons[1] then ActivateTabByIndex(1) end
-                end
-            end)
-        end
-
-    elseif event=="PLAYER_SPECIALIZATION_CHANGED" then
-        local newSpecID=GetSpecializationInfo(GetSpecialization()) or 0
-        if newSpecID~=API.currentSpecID then
-            -- Save current spec's layout before switching
-            SaveSpecProfile()
-            API.currentSpecID=newSpecID
-            -- Load the new spec's layout (creates an empty profile if first time)
-            LoadSpecProfile()
-            local si=GetSpecialization and GetSpecialization()
-            local sn=si and select(2,GetSpecializationInfo(si)) or "Unknown"
-            specInfoLabel:SetText("Active Spec: |cFFFFD700"..(API.playerClass or "?").." – "..tostring(sn).."|r")
-            API.Debug("[MidnightQoL] Spec changed to "..tostring(sn).." — loaded spec profile.")
-        end
-    end
-end)
-
--- ── Slash commands ─────────────────────────────────────────────────────────────
-SLASH_CUSTOMSOUNDS1="/qol"; SLASH_CUSTOMSOUNDS2="/midnightqol"
-SlashCmdList["CUSTOMSOUNDS"]=function()
-    if mainFrame:IsShown() then mainFrame:Hide()
-    else mainFrame:Show(); if tabButtons[1] then ActivateTabByIndex(1) end end
-end
-
-SLASH_UNREADWHISPERS1="/clearwhispers"
-SlashCmdList["UNREADWHISPERS"]=function()
-    if API.ClearUnreadWhispers then API.ClearUnreadWhispers() end
-    print("|cFF00FF00[MidnightQoL]|r Unread whispers cleared.")
-end
-
-SLASH_CUSTOMSOUNDTEST1="/soundtest"
-SlashCmdList["CUSTOMSOUNDTEST"]=function() PlayCustomSound(12743,true) end
-
-SLASH_MQLDEBUG1="/mqldebug"
-SlashCmdList["MQLDEBUG"]=function()
-    API.DEBUG = not API.DEBUG
-    if BuffAlertDB then BuffAlertDB.debugEnabled = API.DEBUG end
-    if API.DEBUG then
-        if API.EnableErrorLog then API.EnableErrorLog() end
-        print("|cFF00FF00[MidnightQoL]|r Debug mode |cFFFFFF00ENABLED|r — errors will be saved to SavedVariables on logout")
-    else
-        if API.DisableErrorLog then API.DisableErrorLog() end
-        print("|cFF00FF00[MidnightQoL]|r Debug mode |cFFAAAAAAdisabled|r")
-    end
-    if _G["CSGenDebugCheck"] then _G["CSGenDebugCheck"]:SetChecked(API.DEBUG) end
-end
-
-
--- /mqlauras — dump all current player auras with spell IDs
--- Use immediately after casting a suspect spell to identify what it puts on you
-SLASH_MQLAURAS1="/mqlauras"
-SlashCmdList["MQLAURAS"]=function()
-    print("|cFF00CCFF[MidnightQoL Aura Dump]|r ----------")
-    local i = 1
-    while true do
-        local ok, aura = pcall(C_UnitAuras.GetAuraDataByIndex, "player", i, "HELPFUL")
-        if not ok or not aura then break end
-        local name = aura.name or "?"
-        local sid  = aura.spellId or 0
-        print(string.format("  [%d] %s  sid=%d  stacks=%s  dur=%.1f",
-            i, name, sid,
-            tostring(aura.applications or 0),
-            aura.duration or 0))
-        i = i + 1
-    end
-    -- Also check tracked buff IDs specifically
-    print("  -- Tracked buff IDs currently active: --")
-    local API = MidnightQoLAPI
-    if API and API.trackedBuffs then
-        for _, buff in ipairs(API.trackedBuffs) do
-            if buff.enabled ~= false and buff.spellId then
-                local ok2, aura2 = pcall(C_UnitAuras.GetPlayerAuraBySpellID, buff.spellId)
-                local active = ok2 and aura2 and "ACTIVE" or "absent"
-                local ok3, info = pcall(C_Spell.GetSpellInfo, buff.spellId)
-                local sname = ok3 and info and info.name or "?"
-                print(string.format("  sid=%d (%s): %s", buff.spellId, sname, active))
-            end
-        end
-    end
-    print("|cFF00CCFF[MidnightQoL Aura Dump]|r ----------")
-end
-
--- ── Error log to file ─────────────────────────────────────────────────────────
--- When debug mode is enabled, captures all Lua errors into BuffAlertDB.errorLog
--- which is written to disk in SavedVariables on logout.
--- Read the log at: WTF/Account/<name>/SavedVariables/MidnightQoL.lua
-
-local _origErrHandler = geterrorhandler()
-
-local function MQLErrorHandler(err)
-    if API.DEBUG then
-        local entry = date("%H:%M:%S") .. " " .. tostring(err)
-        _errorLog[#_errorLog + 1] = entry
-    end
-    if _origErrHandler then _origErrHandler(err) end
-end
-
-local function EnableErrorLog()
-    -- Clear and add a session marker so entries are easy to find in the file
-    for i = #_errorLog, 1, -1 do _errorLog[i] = nil end
-    _errorLog[1] = date("%Y-%m-%d %H:%M:%S") .. " ===== Debug session started ====="
-    seterrorhandler(MQLErrorHandler)
-    API.Debug("[MidnightQoL] Error logging to SavedVariables enabled")
-end
-
-local function DisableErrorLog()
-    seterrorhandler(_origErrHandler)
-    API.Debug("[MidnightQoL] Error logging disabled")
-end
-
-API.EnableErrorLog  = EnableErrorLog
-API.DisableErrorLog = DisableErrorLog
-
--- Save log on logout
-local errLogFrame = CreateFrame("Frame")
-errLogFrame:RegisterEvent("PLAYER_LOGOUT")
-errLogFrame:SetScript("OnEvent", function()
-    if BuffAlertDB then
-        BuffAlertDB.errorLog = (#_errorLog > 0) and _errorLog or nil
-    end
-end)
-
--- Auto-enable if debug was already on from last session
-errLogFrame:RegisterEvent("PLAYER_LOGIN")
-errLogFrame:HookScript("OnEvent", function(self, event)
-    if event == "PLAYER_LOGIN" and API.DEBUG then
-        EnableErrorLog()
-    end
-end)
+BuffAlertDB = {
+["alsActivityRules"] = {
+["254"] = {
+["dungeon"] = {
+["loadoutID"] = 57760643,
+["loadoutName"] = "M+",
+},
+},
+["253"] = {
+["dungeon"] = {
+["loadoutID"] = 57760643,
+["loadoutName"] = "M+",
+},
+["raid"] = {
+["loadoutID"] = 57760643,
+["loadoutName"] = "M+",
+},
+},
+["268"] = {
+["openworld"] = {
+["loadoutID"] = 59766940,
+["loadoutName"] = "m+ Shadow Pan",
+},
+["warmode"] = {
+["loadoutID"] = 57972284,
+["loadoutName"] = "PVP",
+},
+["arena"] = {
+["loadoutID"] = 57972284,
+["loadoutName"] = "PVP",
+},
+["raid"] = {
+["loadoutID"] = 58908947,
+["loadoutName"] = "Brewmaster Raid",
+},
+["dungeon"] = {
+["loadoutID"] = 59766940,
+["loadoutName"] = "m+ Shadow Pan",
+},
+["battleground"] = {
+["loadoutID"] = 57972284,
+["loadoutName"] = "PVP",
+},
+},
+["270"] = {
+["dungeon"] = {
+["loadoutID"] = 58722257,
+["loadoutName"] = "M+ Midnight",
+},
+["warmode"] = {
+["loadoutID"] = 57968457,
+["loadoutName"] = "PVP",
+},
+["openworld"] = {
+["loadoutID"] = 58722257,
+["loadoutName"] = "M+ Midnight",
+},
+["arena"] = {
+["loadoutID"] = 57968457,
+["loadoutName"] = "PVP",
+},
+["raid"] = {
+["loadoutID"] = 58722257,
+["loadoutName"] = "M+ Midnight",
+},
+["battleground"] = {
+["loadoutID"] = 57968457,
+["loadoutName"] = "PVP",
+},
+},
+},
+["petReminderR"] = 1,
+["expBarShowRested"] = true,
+["autoQuestAccept"] = true,
+["repBarBgR"] = 0,
+["subBagIconSize"] = 32,
+["buffDebuffAlertsEnabled"] = true,
+["wowSettings"] = {
+["interactKey"] = "F",
+["damageMeter"] = "1",
+["savedAt"] = "2026-03-19 21:00",
+["autoPushSpell"] = "1",
+["leftClickInteract"] = "0",
+["autoLoot"] = "1",
+["cooldownViewer"] = "1",
+},
+["expBarColorR"] = 0,
+["repBarEnabled"] = true,
+["brezX"] = 1714.999900817871,
+["trackedExternals"] = {
+},
+["unitFrames"] = {
+["targetW"] = 200,
+["focusY"] = -280,
+["showPlayer"] = true,
+["showParty"] = true,
+["showTarget"] = true,
+["aggroG"] = 0.1,
+["playerW"] = 200,
+["partyH"] = 44,
+["raidH"] = 36,
+["petW"] = 120,
+["petH"] = 30,
+["showHP"] = true,
+["enabled"] = true,
+["nameFont"] = 11,
+["raidSpacingX"] = 2,
+["absorbB"] = 1,
+["raidX"] = -420,
+["petX"] = -300,
+["playerH"] = 50,
+["absorbG"] = 0.6,
+["focusW"] = 180,
+["corners"] = {
+["TOPLEFT"] = {
+["showDur"] = true,
+["spells"] = {
+0,
+0,
+0,
+},
+["showStack"] = true,
+["size"] = 14,
+},
+["TOPRIGHT"] = {
+["showDur"] = true,
+["spells"] = {
+0,
+0,
+0,
+},
+["showStack"] = true,
+["size"] = 14,
+},
+["BOTTOMLEFT"] = {
+["showDur"] = false,
+["spells"] = {
+0,
+0,
+0,
+},
+["showStack"] = true,
+["size"] = 14,
+},
+["BOTTOMRIGHT"] = {
+["showDur"] = false,
+["spells"] = {
+0,
+0,
+0,
+},
+["showStack"] = true,
+["size"] = 14,
+},
+},
+["showPet"] = true,
+["borderG"] = 0.15,
+["partyW"] = 180,
+["raidW"] = 80,
+["raidY"] = 160,
+["aggroB"] = 0.1,
+["incomingG"] = 0.9,
+["showHPPct"] = true,
+["absorbR"] = 0.2,
+["bgAlpha"] = 0.85,
+["petY"] = -240,
+["raidCols"] = 5,
+["partySpacingY"] = 4,
+["focusX"] = -300,
+["borderB"] = 0.15,
+["powerH"] = 4,
+["borderR"] = 0.15,
+["partyY"] = 160,
+["hpFont"] = 10,
+["partyX"] = -420,
+["borderSize"] = 1,
+["targetH"] = 50,
+["classColorHP"] = true,
+["playerX"] = -300,
+["showFocus"] = true,
+["targetX"] = 300,
+["aggroR"] = 1,
+["incomingR"] = 0.2,
+["showAbsorb"] = true,
+["showIncoming"] = true,
+["aggroEnabled"] = true,
+["showName"] = true,
+["playerY"] = -180,
+["raidSpacingY"] = 2,
+["targetY"] = -180,
+["incomingB"] = 0.2,
+["showRaid"] = true,
+["focusH"] = 40,
+},
+["repBarPendingB"] = 0,
+["minimapAngle"] = -157.0487922664176,
+["repBarPendingR"] = 1,
+["whisperEnabled"] = true,
+["expBarBgA"] = 0.55,
+["debugDump"] = {
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Leather Mantle",
+["isBound"] = "true",
+["_bag"] = 0,
+["_slot"] = 1,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Reflecting Prism",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 2,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Earth-Encrusted Gem",
+["isBound"] = "true",
+["_bag"] = 0,
+["_slot"] = 3,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Goblin Glider Kit",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 4,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Earth-Encrusted Gem",
+["isBound"] = "true",
+["_bag"] = 0,
+["_slot"] = 5,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Disarmed Trap",
+["isBound"] = "true",
+["_bag"] = 0,
+["_slot"] = 6,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Ouroboros Tablet",
+["isBound"] = "true",
+["_bag"] = 0,
+["_slot"] = 7,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Hearty Impossibly Royal Roast",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 8,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Hearty Silvermoon Standard",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 9,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Hearty Bloom Skewers",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 10,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Impossibly Royal Roast",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 11,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Hearty Spellfire Filet",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 12,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Vile Essence",
+["isBound"] = "true",
+["_bag"] = 0,
+["_slot"] = 13,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Finery Funds",
+["isBound"] = "true",
+["_bag"] = 0,
+["_slot"] = 14,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "L00T RAID-R Mini",
+["isBound"] = "true",
+["_bag"] = 0,
+["_slot"] = 15,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Hearty Royal Roast",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 16,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Fel-Kissed Filet",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 17,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Royal Roast",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 18,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Champion's Bento",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 19,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Felberry Figs",
+["isBound"] = "false",
+["_bag"] = 0,
+["_slot"] = 20,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Spellfire Filet",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 1,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Silvermoon Standard",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 2,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Bloom Skewers",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 3,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "\"Third Wind\" Potion",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 4,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Hearty Fel-Kissed Filet",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 5,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Convincingly Realistic Jumper Cables",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 6,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Auto-Hammer",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 7,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Thermal Anvil",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 8,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Deed of Patronage",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 9,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Guardian's Gemstone Loop",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 10,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Holy Retributor's Order",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 11,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Obsidian Goaltending Spire",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 12,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Gar'chak's Mark of Honor",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 13,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Devouring Outrider's Chausses",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 14,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Potent Healing Potion",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 15,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Leather Mask",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 16,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Verdant Tracker's Cuffs",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 17,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Leather Wristwraps",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 18,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Leather Grips",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 19,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Holy Retributor's Order",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 20,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Leather Cord",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 21,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Drum of Renewed Bonds",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 22,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Leather Breeches",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 23,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Cosmic Bell",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 24,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Cloak",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 25,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Gift of Light",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 26,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Cloak of Coordination",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 27,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Amani Heartstring Pendant",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 28,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Dreadful Gilded Gallybux",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 29,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Band",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 30,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Ring",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 31,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Dreadful Silken Offering",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 32,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Echo of L'ura",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 33,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Medallion",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 34,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Mystic Foreboding Beaker",
+["isBound"] = "false",
+["_bag"] = 1,
+["_slot"] = 35,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Pattern: Blessed Pango Charm",
+["isBound"] = "true",
+["_bag"] = 1,
+["_slot"] = 36,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Reinforced Amani Haft",
+["isBound"] = "true",
+["_bag"] = 2,
+["_slot"] = 1,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Crackling Shard",
+["isBound"] = "true",
+["_bag"] = 2,
+["_slot"] = 2,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Mark of Honor",
+["isBound"] = "true",
+["_bag"] = 2,
+["_slot"] = 3,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Latent Arcana",
+["isBound"] = "true",
+["_bag"] = 2,
+["_slot"] = 4,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Diamondback-Scale Legguards",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 5,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Warcloak of the Butcher",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 6,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Fangs of the Invader",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 7,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Beacon of Hope",
+["isBound"] = "true",
+["_bag"] = 2,
+["_slot"] = 8,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Magical Mulch",
+["isBound"] = "true",
+["_bag"] = 2,
+["_slot"] = 9,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Lynxhide Shawl",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 10,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Lexicologist's Vellum",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 11,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Powder Pigment",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 12,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Thalassian Songwater",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 13,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Thalassian Essence of the Faire",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 14,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Apprentice's Scribbles",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 15,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Argentleaf Pigment",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 16,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Sanguithorn Pigment",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 17,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Artisan's Ledger",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 18,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Earthy Garnish",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 19,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Mana Lily Pigment",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 20,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Codified Azeroot",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 21,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Savory Anomaly",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 22,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Blazing Ink",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 23,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Mote of Light",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 24,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Thalassian Lumber",
+["isBound"] = "true",
+["_bag"] = 2,
+["_slot"] = 25,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Lightweave Cloth",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 26,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Mana Lily",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 27,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Void Violet Dye",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 28,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Vantus Rune: Radiant",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 29,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Tormented Tantalum",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 30,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Choker",
+["isBound"] = "true",
+["_bag"] = 2,
+["_slot"] = 31,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Mote of Pure Void",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 32,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Argentleaf",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 33,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Argentleaf",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 34,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Mote of Wild Magic",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 35,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Zapthrottle Soul Inhaler",
+["isBound"] = "false",
+["_bag"] = 2,
+["_slot"] = 36,
+["bindType"] = "3",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Talisman of the Dragon Hoard",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 1,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Ethereal Essence Sliver",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 2,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Mote of Primal Energy",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 3,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Stormarion Core",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 4,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Aquarius Bloom",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 5,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Gateway Control Shard",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 6,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Azeroot",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 7,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Abundant Beacon",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 8,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Bloom Bauble",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 9,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Petrified Root",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 10,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Tarnished Safebox Key",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 11,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "A Tattered Ball",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 12,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Void-Tainted Remains",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 13,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Sargle's Fortune #2",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 14,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Sturdy Expedition Shovel",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 15,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Azeroot",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 16,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Sanguithorn",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 17,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Sanguithorn",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 18,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Tranquility Bloom",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 19,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Cooking Spirits",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 20,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Thalassian Treatise on Herbalism",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 21,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Saltwater Potion",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 22,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Galactic Gladiator's Heraldry",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 23,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Leather Vest",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 24,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Artisan's Consortium Gold Star",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 25,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Void-Touched Augment Rune",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 26,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Shaggy Wyrmleather Leggings",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 27,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Insignia of Alacrity",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 28,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Plans: Obsidian Seared Hexsword",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 29,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Plagued Pike of the Fireflash",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 30,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Silvermoon Parade",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 31,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Fused Vitality",
+["isBound"] = "true",
+["_bag"] = 3,
+["_slot"] = 32,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Dark Gold Dye",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 33,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Peerless Plumage",
+["isBound"] = "false",
+["_bag"] = 3,
+["_slot"] = 34,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Thalassian Treatise on Inscription",
+["isBound"] = "true",
+["_bag"] = 4,
+["_slot"] = 1,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Preyseeker's Spire",
+["isBound"] = "true",
+["_bag"] = 4,
+["_slot"] = 2,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Floratender's Crutch",
+["isBound"] = "true",
+["_bag"] = 4,
+["_slot"] = 3,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Falconer's Cinch",
+["isBound"] = "true",
+["_bag"] = 4,
+["_slot"] = 4,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Fine Bioluminescent Powder",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 5,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Glowing Gland",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 6,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Bioluminescent Flower Petals",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 7,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Galactic Aspirant's Leather Footpads",
+["isBound"] = "true",
+["_bag"] = 4,
+["_slot"] = 8,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Sizable Tusk",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 9,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Definitely Not a Rock",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 10,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Mana Lily",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 11,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Threadbare Slippers",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 12,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Rotting Insect Eggs",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 13,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Verminscale Gavel",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 14,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Tarnished Dawnlit Longbow",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 15,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Grim Harvest Gloves",
+["isBound"] = "true",
+["_bag"] = 4,
+["_slot"] = 16,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Stained Fistguards",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 17,
+["bindType"] = "2",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Polished Purple Pebble",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 18,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Abrasive Sand",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 19,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Digested Human Hand",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 20,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Nightsong Lilac Dye",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 21,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Lucky Loa",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 22,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Cosmic Bell",
+["isBound"] = "true",
+["_bag"] = 4,
+["_slot"] = 23,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Gore Guppy",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 24,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Broken Wildlife Claw",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 25,
+["bindType"] = "0",
+},
+{
+["hasNoValue"] = "false",
+["_name"] = "Voidbreaker's Jacket",
+["isBound"] = "true",
+["_bag"] = 4,
+["_slot"] = 30,
+["bindType"] = "1",
+},
+{
+["hasNoValue"] = "true",
+["_name"] = "Plain Letter",
+["isBound"] = "false",
+["_bag"] = 4,
+["_slot"] = 31,
+["bindType"] = "0",
+},
+},
+["keystones"] = {
+["announceWinner"] = true,
+["tooltipPercent"] = true,
+["autoSlot"] = true,
+["wheelSpinTime"] = 5,
+},
+["subBags"] = {
+{
+["id"] = "494344537_5904",
+["name"] = "Consums",
+["search"] = "#consumable",
+},
+{
+["id"] = "sb_591694975_5815",
+["name"] = "non set gear",
+["search"] = "#armor|#weapon",
+},
+{
+["id"] = "sb_497715427_1884",
+["name"] = "Quests",
+["search"] = "#questitem",
+},
+{
+["id"] = "sb_497745745_1148",
+["name"] = "Recipes",
+["search"] = "#recipe",
+},
+{
+["id"] = "sb_591650186_1815",
+["name"] = "Gear Set Gear",
+["search"] = "#armor&^inset|#weapon&inset",
+},
+{
+["id"] = "sb_497759095_2238",
+["name"] = "Trash",
+["search"] = "^junk",
+},
+{
+["id"] = "sb_497740510_6901",
+["name"] = "Crafting",
+["search"] = "#reagent",
+},
+},
+["repBarFillR"] = 0.8,
+["trackedBuffs"] = {
+},
+["subBagCollapsed"] = {
+["sb_497720643_9501"] = false,
+["494327121_1063"] = true,
+["__other"] = false,
+["494344537_5904"] = false,
+["sb_591694975_5815"] = false,
+["sb_497715427_1884"] = false,
+["sb_497745745_1148"] = false,
+["sb_591650186_1815"] = false,
+["sb_497740510_6901"] = false,
+},
+["preyBarY"] = 167,
+["bagPanelSize"] = {
+604.999755859375,
+632.9999389648438,
+},
+["expBarX"] = 21,
+["repBarBgG"] = 0,
+["petReminderSize"] = 18,
+["uiFadeNameplates"] = 100,
+["repBarFillG"] = 0.2,
+["petReminderY"] = 292,
+["expBarRestedB"] = 0.8,
+["raidFrames"] = {
+["aggroG"] = 0.15,
+["hotIconSize"] = 14,
+["otX"] = -300,
+["otGrowDown"] = true,
+["aggroEnabled"] = false,
+["aggroThreshold"] = 90,
+["aggroR"] = 1,
+["hotEnabled"] = false,
+["otDebuffId"] = 0,
+["hotSpells"] = {
+},
+["otEnabled"] = false,
+["otWidth"] = 220,
+["otY"] = 200,
+["otRowHeight"] = 36,
+["aggroB"] = 0.15,
+},
+["debugEnabled"] = false,
+["alsLoadoutEquip"] = {
+["57968457"] = {
+["equipSetID"] = 5,
+["equipSetName"] = "Healer PVP",
+},
+["59766940"] = {
+["equipSetID"] = 2,
+["equipSetName"] = "tank raid",
+},
+["58722257"] = {
+["equipSetID"] = 0,
+["equipSetName"] = "healer",
+},
+["57972284"] = {
+["equipSetID"] = 4,
+["equipSetName"] = "tank pvp",
+},
+["58908947"] = {
+["equipSetID"] = 2,
+["equipSetName"] = "tank raid",
+},
+["57528106"] = {
+["equipSetID"] = 2,
+["equipSetName"] = "tank raid",
+},
+["59581023"] = {
+["equipSetID"] = 2,
+["equipSetName"] = "tank raid",
+},
+["59580984"] = {
+["equipSetID"] = 2,
+["equipSetName"] = "tank raid",
+},
+["59638728"] = {
+["equipSetID"] = 2,
+["equipSetName"] = "tank raid",
+},
+},
+["specProfiles"] = {
+["WARLOCK_266"] = {
+["resourceBars"] = {
+{
+["bgR"] = 0.1,
+["label"] = "Soul Shards",
+["pipGap"] = 4,
+["g"] = 1,
+["isPip"] = true,
+["showValue"] = false,
+["h"] = 47,
+["bgB"] = 0.1,
+["pipSize"] = 40,
+["enabled"] = true,
+["r"] = 0.5215686559677124,
+["isBar"] = false,
+["w"] = 222,
+["maxPips"] = 5,
+["y"] = -137,
+["x"] = -54,
+["pipShape"] = "rune",
+["bgG"] = 0.1,
+["powerType"] = 7,
+["unit"] = "player",
+["showLabel"] = false,
+["b"] = 0.458823561668396,
+},
+{
+["bgR"] = 0.1,
+["label"] = "Imps",
+["pipGap"] = 4,
+["g"] = 1,
+["isPip"] = false,
+["showValue"] = true,
+["h"] = 20,
+["bgB"] = 0.1,
+["pipSize"] = 18,
+["enabled"] = true,
+["r"] = 0.2470588386058807,
+["isBar"] = true,
+["w"] = 200,
+["maxPips"] = 5,
+["y"] = -268,
+["x"] = -35,
+["pipShape"] = "square",
+["bgG"] = 0.1,
+["powerType"] = 22,
+["unit"] = "player",
+["showLabel"] = true,
+["b"] = 0.321568638086319,
+},
+},
+["buffDebuffAlertsEnabled"] = true,
+["trackedDebuffs"] = {
+},
+["trackedBuffs"] = {
+},
+["trackedExternals"] = {
+},
+},
+["SHAMAN_264"] = {
+},
+["global"] = {
+["buffDebuffAlertsEnabled"] = true,
+["trackedBuffs"] = {
+{
+["alertDuration"] = 0,
+["alertX"] = 0,
+["alertY"] = 0,
+["alertTexture"] = "136090",
+["alertSize"] = 64,
+["alertBarWidth"] = 200,
+["spellId"] = 57723,
+["enabled"] = false,
+["glowEnabled"] = true,
+["hideNativeIcon"] = false,
+["alertMode"] = "icon",
+["sound"] = "Interface/AddOns/MidnightQoL/Sounds/Pedro.ogg",
+["soundIsID"] = true,
+},
+},
+["resourceBars"] = {
+{
+["bgR"] = 0.1,
+["threshSoundIsID"] = false,
+["staggerHighR"] = 1,
+["label"] = "",
+["pipGap"] = 4,
+["g"] = 1,
+["isPip"] = false,
+["showValue"] = false,
+["threshEnabled"] = true,
+["bgB"] = 0.1,
+["pipSize"] = 40,
+["maxPips"] = 0,
+["unit"] = "player",
+["threshSound"] = "Interface/AddOns/MidnightQoL/Sounds/Warning Siren.ogg",
+["showLabel"] = false,
+["b"] = 0.06666667014360428,
+["r"] = 0.2235294282436371,
+["threshValue"] = 80,
+["isBar"] = true,
+["w"] = 400,
+["powerType"] = 20,
+["y"] = -169,
+["x"] = -41,
+["pipShape"] = "rune",
+["bgG"] = 0.1,
+["staggerHighG"] = 0.3,
+["staggerHighB"] = 0,
+["enabled"] = true,
+["h"] = 20,
+},
+},
+},
+["MONK_268"] = {
+["trackedExternals"] = {
+},
+["unitFrames"] = {
+["targetW"] = 200,
+["focusY"] = -280,
+["showPlayer"] = true,
+["showParty"] = true,
+["showTarget"] = true,
+["aggroG"] = 0.1,
+["playerW"] = 200,
+["partyH"] = 44,
+["raidH"] = 36,
+["petW"] = 120,
+["petH"] = 30,
+["showHP"] = true,
+["enabled"] = true,
+["nameFont"] = 11,
+["raidSpacingX"] = 2,
+["absorbB"] = 1,
+["raidX"] = -420,
+["petX"] = -300,
+["playerH"] = 50,
+["absorbG"] = 0.6,
+["focusW"] = 180,
+["corners"] = {
+["TOPLEFT"] = {
+["showDur"] = true,
+["spells"] = {
+0,
+0,
+0,
+},
+["showStack"] = true,
+["size"] = 14,
+},
+["TOPRIGHT"] = {
+["showDur"] = true,
+["spells"] = {
+0,
+0,
+0,
+},
+["showStack"] = true,
+["size"] = 14,
+},
+["BOTTOMLEFT"] = {
+["showDur"] = false,
+["spells"] = {
+0,
+0,
+0,
+},
+["showStack"] = true,
+["size"] = 14,
+},
+["BOTTOMRIGHT"] = {
+["showDur"] = false,
+["spells"] = {
+0,
+0,
+0,
+},
+["showStack"] = true,
+["size"] = 14,
+},
+},
+["showPet"] = true,
+["borderG"] = 0.15,
+["partyW"] = 180,
+["raidW"] = 80,
+["raidY"] = 160,
+["aggroB"] = 0.1,
+["incomingG"] = 0.9,
+["showHPPct"] = true,
+["absorbR"] = 0.2,
+["bgAlpha"] = 0.85,
+["petY"] = -240,
+["raidCols"] = 5,
+["partySpacingY"] = 4,
+["focusX"] = -300,
+["borderB"] = 0.15,
+["powerH"] = 4,
+["borderR"] = 0.15,
+["partyY"] = 160,
+["hpFont"] = 10,
+["partyX"] = -420,
+["borderSize"] = 1,
+["targetH"] = 50,
+["classColorHP"] = true,
+["playerX"] = -300,
+["showFocus"] = true,
+["targetX"] = 300,
+["aggroR"] = 1,
+["incomingR"] = 0.2,
+["showAbsorb"] = true,
+["showIncoming"] = true,
+["aggroEnabled"] = true,
+["showName"] = true,
+["playerY"] = -180,
+["raidSpacingY"] = 2,
+["targetY"] = -180,
+["incomingB"] = 0.2,
+["showRaid"] = true,
+["focusH"] = 40,
+},
+["buffDebuffAlertsEnabled"] = true,
+["trackedBuffs"] = {
+},
+["tauntSwapEnabled"] = true,
+["trackedTauntDebuffs"] = {
+},
+["trackedDebuffs"] = {
+},
+["raidFrames"] = {
+["aggroG"] = 0.15,
+["hotIconSize"] = 14,
+["otX"] = -300,
+["otGrowDown"] = true,
+["aggroEnabled"] = false,
+["aggroThreshold"] = 90,
+["aggroR"] = 1,
+["hotEnabled"] = false,
+["otDebuffId"] = 0,
+["hotSpells"] = {
+},
+["otEnabled"] = false,
+["otWidth"] = 220,
+["otY"] = 200,
+["otRowHeight"] = 36,
+["aggroB"] = 0.15,
+},
+["resourceBars"] = {
+{
+["bgR"] = 0.1,
+["threshSoundIsID"] = false,
+["staggerHighR"] = 1,
+["label"] = "",
+["pipGap"] = 4,
+["g"] = 0.6,
+["unit"] = "player",
+["showValue"] = true,
+["threshEnabled"] = false,
+["bgB"] = 0.1,
+["pipSize"] = 18,
+["staggerHighB"] = 0,
+["enabled"] = true,
+["staggerHighG"] = 0.3,
+["h"] = 31,
+["r"] = 0.2,
+["w"] = 610,
+["isBar"] = true,
+["threshValue"] = 5,
+["x"] = -38,
+["y"] = -266,
+["powerType"] = 20,
+["pipShape"] = "circle",
+["bgG"] = 0.1,
+["b"] = 1,
+["maxPips"] = 5,
+["showLabel"] = true,
+["isPip"] = false,
+},
+{
+["bgR"] = 0.1,
+["threshSoundIsID"] = false,
+["staggerHighR"] = 1,
+["label"] = "",
+["pipGap"] = 4,
+["g"] = 0.6000000238418579,
+["unit"] = "role:HEALER",
+["showValue"] = true,
+["threshEnabled"] = false,
+["bgB"] = 0.1,
+["pipSize"] = 18,
+["staggerHighB"] = 0,
+["enabled"] = true,
+["staggerHighG"] = 0.3,
+["h"] = 20,
+["r"] = 0.2000000178813934,
+["w"] = 200,
+["isBar"] = true,
+["threshValue"] = 5,
+["x"] = 797,
+["y"] = -39,
+["powerType"] = 0,
+["pipShape"] = "square",
+["bgG"] = 0.1,
+["b"] = 1,
+["maxPips"] = 5,
+["showLabel"] = true,
+["isPip"] = false,
+},
+},
+},
+["DRUID_105"] = {
+},
+["SHAMAN_263"] = {
+["trackedExternals"] = {
+},
+["buffDebuffAlertsEnabled"] = true,
+["trackedDebuffs"] = {
+},
+["trackedBuffs"] = {
+},
+["resourceBars"] = {
+{
+["bgR"] = 0.1,
+["b"] = 1,
+["pipGap"] = 4,
+["g"] = 0.6,
+["isPip"] = true,
+["showValue"] = true,
+["h"] = 20,
+["bgB"] = 0.1,
+["pipSize"] = 18,
+["enabled"] = true,
+["r"] = 0.2,
+["isBar"] = false,
+["w"] = 200,
+["label"] = "",
+["y"] = 328,
+["x"] = -40,
+["pipShape"] = "thin",
+["bgG"] = 0.1,
+["showLabel"] = true,
+["unit"] = "player",
+["powerType"] = 21,
+["maxPips"] = 10,
+},
+},
+},
+["WARLOCK_265"] = {
+["buffDebuffAlertsEnabled"] = true,
+["resourceBars"] = {
+},
+["trackedBuffs"] = {
+},
+},
+["MONK_270"] = {
+["resourceBars"] = {
+{
+["bgR"] = 0.1,
+["threshSoundIsID"] = false,
+["staggerHighR"] = 1,
+["label"] = "Mana",
+["pipGap"] = 4,
+["g"] = 0.6,
+["maxPips"] = 5,
+["showValue"] = true,
+["h"] = 28,
+["bgB"] = 0.1,
+["pipSize"] = 18,
+["unit"] = "player",
+["staggerHighB"] = 0,
+["showLabel"] = true,
+["isPip"] = false,
+["r"] = 0.2,
+["b"] = 1,
+["isBar"] = true,
+["w"] = 761,
+["powerType"] = 0,
+["y"] = -289,
+["x"] = 14,
+["pipShape"] = "square",
+["bgG"] = 0.1,
+["threshValue"] = 5,
+["threshEnabled"] = false,
+["staggerHighG"] = 0.3,
+["enabled"] = true,
+},
+},
+["tauntSwapEnabled"] = true,
+["trackedTauntDebuffs"] = {
+},
+["trackedExternals"] = {
+{
+["enabled"] = true,
+["alertX"] = -379,
+["alertY"] = 360,
+["alertTexture"] = "Interface\\Icons\\Spell_Nature_Bloodlust",
+["glowEnabled"] = true,
+["alertSize"] = 64,
+["spellId"] = 0,
+["alertDuration"] = 0,
+["stackCount"] = 0,
+["hideNativeIcon"] = true,
+["sound"] = "Interface/AddOns/MidnightQoL/Sounds/Knife Throw.ogg",
+["soundIsID"] = true,
+},
+},
+["trackedDebuffs"] = {
+},
+["trackedBuffs"] = {
+},
+["buffDebuffAlertsEnabled"] = true,
+},
+},
+["expBarColorG"] = 0.6,
+["repBarWidth"] = 600,
+["dbVersion"] = "2.2.0",
+["repBarBgA"] = 0.55,
+["breakBarY"] = 90,
+["bagPanelPos"] = {
+654.500732421875,
+-224.4994812011719,
+},
+["breakBarR"] = 0.2,
+["expBarHeight"] = 24,
+["breakBarX"] = 752,
+["alsLayoutRules"] = {
+["3"] = {
+["loadoutID"] = 57760643,
+["pvpAutoApply"] = false,
+["loadoutName"] = "M+",
+},
+},
+["alsLayoutTalents"] = {
+["3"] = {
+["57760643"] = "M+",
+},
+},
+["resourceBarsEnabled"] = true,
+["subBagHideWarbound"] = false,
+["repBarShowText"] = true,
+["raidbuffCheckEnabled"] = true,
+["subBagShowBoundOnly"] = false,
+["repBarX"] = 25,
+["battlerezEnabled"] = true,
+["preyBarX"] = 571,
+["breakBarB"] = 1,
+["repBarY"] = 517,
+["repBarBgB"] = 0,
+["whisperList"] = {
+},
+["petReminderB"] = 0,
+["petReminderX"] = -41,
+["bagUpgradeEnabled"] = true,
+["petReminderG"] = 0.4,
+["generalWhisperSound"] = "Interface/AddOns/MidnightQoL/Sounds/Chant.ogg",
+["expBarPendingR"] = 1,
+["poisonAlertEnabled"] = true,
+["alsMappings"] = {
+},
+["mainFramePos"] = {
+["y"] = -7.999829769134522,
+["relPoint"] = "CENTER",
+["point"] = "CENTER",
+["x"] = -35.99895477294922,
+},
+["uiFadeActionBars"] = 40,
+["expBarRepG"] = 0.2,
+["subBagPanelEnabled"] = true,
+["tauntSwapEnabled"] = true,
+["ignoreOutgoingWhispers"] = true,
+["brezY"] = 977.9999780654907,
+["petReminderSoundIsID"] = false,
+["whisperIndicatorEnabled"] = true,
+["expBarMouseover"] = true,
+["trackedTauntDebuffs"] = {
+},
+["petReminderSound"] = "Interface/AddOns/MidnightQoL/Sounds/Roar.ogg",
+["expBarBgB"] = 0,
+["expBarWidth"] = 709,
+["raidBuffHUDY"] = 1062.999755859375,
+["breakTimerEnabled"] = true,
+["generalWhisperSoundIsID"] = false,
+["subBagHideSoulbound"] = false,
+["expBarHideAtMax"] = true,
+["alsEnabled"] = true,
+["repBarHeight"] = 10,
+["uiFadeUnitFrames"] = 100,
+["expBarShowText"] = true,
+["expBarRepB"] = 1,
+["expBarPendingG"] = 0.85,
+["repBarPendingG"] = 0.85,
+["expBarRestedG"] = 0,
+["expBarRepR"] = 0.8,
+["minimapBtnShown"] = true,
+["expBarShowRep"] = true,
+["subBagIlvlEnabled"] = true,
+["pullTimerEnabled"] = true,
+["cdMismatchSuppressed"] = false,
+["expBarBgG"] = 0,
+["expBarColorB"] = 1,
+["raidBuffHUDX"] = 1636.000122070313,
+["petReminderEnabled"] = true,
+["expBarEnabled"] = true,
+["trackedDebuffs"] = {
+},
+["alsLoadoutLayout"] = {
+["57760643"] = {
+["layoutName"] = "Classic",
+["layoutIndex"] = 2,
+},
+["57837989"] = {
+["layoutName"] = "Default",
+["layoutIndex"] = 3,
+},
+},
+["expBarPendingB"] = 0,
+["expBarRestedR"] = 0.3,
+["repBarFillB"] = 1,
+["minimapRadius"] = 106.4248719896462,
+["alsEquipTalents"] = {
+},
+["uiFadeMinimap"] = 100,
+["sellConfirmEnabled"] = true,
+["preyBarEnabled"] = true,
+["unreadMailIconPos"] = {
+["y"] = 211,
+["x"] = -935,
+["point"] = "CENTER",
+},
+["tabsEnabled"] = {
+["Layouts"] = true,
+},
+["expBarShowTTL"] = true,
+["autoQuestTurnIn"] = true,
+["meterAutoReset"] = true,
+["breakBarG"] = 0.6,
+["alsDefaultLayout"] = {
+["layoutName"] = "Default",
+["layoutIndex"] = 3,
+},
+["expBarY"] = 466,
+["expBarBgR"] = 0,
+}
+
+
+CastbarDB = {
+["showTimer"] = true,
+["showLatency"] = true,
+["colorFinished"] = {
+1,
+1,
+0.4,
+},
+["colorInterrupted"] = {
+1,
+0.2,
+0.2,
+},
+["finishedFlashDur"] = 0.25,
+["showIcon"] = true,
+["iconSize"] = 20,
+["showGCD"] = true,
+["hideBlizzard"] = true,
+["enabled"] = true,
+["colorEmpowered"] = {
+1,
+0.6,
+0,
+},
+["colorChanneling"] = {
+0.4,
+1,
+0.4,
+},
+["showSpellName"] = true,
+["showChannelTicks"] = true,
+["width"] = 400,
+["y"] = -122,
+["x"] = -36,
+["colorNonInterrupt"] = {
+0.6,
+0.6,
+0.6,
+},
+["height"] = 20,
+["colorBackground"] = {
+0,
+0,
+0,
+},
+["colorCasting"] = {
+0.2,
+0.6,
+1,
+},
+["colorGCD"] = {
+1,
+1,
+1,
+},
+["colorLatency"] = {
+0.7,
+0.1,
+0.1,
+},
+}

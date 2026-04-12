@@ -1,0 +1,998 @@
+-- ============================================================
+-- RogUI_QoL / QoLUI.lua
+-- Adds the General tab to Core's tab system.
+-- Contains: Feature Toggles, Pet Reminder configure section.
+-- (Pull/Break sections added by BarsUI.lua)
+-- ============================================================
+
+local API = RogUIAPI
+
+-- ── General tab content frame ─────────────────────────────────────────────────
+local generalFrame = CreateFrame("Frame","RogUIGeneralFrame",UIParent)
+generalFrame:SetSize(620,600); generalFrame:Hide()
+
+-- ── Helper ────────────────────────────────────────────────────────────────────
+local function MakeCheck(name, parent, labelText, anchorFrame, offsetY)
+    local chk = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate")
+    chk:SetSize(24,24)
+    if anchorFrame then chk:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, offsetY or -6) end
+    local lbl = _G[name.."Text"]
+    if lbl then lbl:SetText(labelText) end
+    return chk
+end
+
+-- ── Section: Feature Toggles ───────────────────────────────────────────────────
+local featHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+featHeader:SetPoint("TOPLEFT",10,-10); featHeader:SetText("|cFFFFD700Features|r")
+
+-- Buff/Debuff Alerts toggle (mirrors the hidden Core checkbox)
+local alertsCheck = CreateFrame("CheckButton","CSGenAlertsCheck",generalFrame,"UICheckButtonTemplate")
+alertsCheck:SetSize(24,24); alertsCheck:SetPoint("TOPLEFT", featHeader, "BOTTOMLEFT", 0, -6)
+local alertsLbl = _G["CSGenAlertsCheckText"]
+if alertsLbl then alertsLbl:SetText("Buff/Debuff Alerts") end
+alertsCheck:SetScript("OnClick", function(self)
+    local cb = API.buffAlertEnabledCheckbox
+    if cb then cb:SetChecked(self:GetChecked()); cb:GetScript("OnClick")(cb) end
+    if RogUIDB then RogUIDB.buffDebuffAlertsEnabled = self:GetChecked() end
+end)
+
+-- Whisper Indicator toggle
+local whisperCheck = CreateFrame("CheckButton","CSGenWhisperCheck",generalFrame,"UICheckButtonTemplate")
+whisperCheck:SetSize(24,24); whisperCheck:SetPoint("TOPLEFT", alertsCheck, "BOTTOMLEFT", 0, -4)
+local whisperLbl = _G["CSGenWhisperCheckText"]
+if whisperLbl then whisperLbl:SetText("Whisper Indicator") end
+whisperCheck:SetScript("OnClick", function(self)
+    local cb = API.whisperIndicatorEnabledCheckbox
+    if cb then cb:SetChecked(self:GetChecked()); cb:GetScript("OnClick")(cb) end
+    if API.SetWhisperIndicator then API.SetWhisperIndicator(self:GetChecked()) end
+end)
+
+-- Minimap Button toggle
+local mmCheck = CreateFrame("CheckButton","CSGenMinimapCheck",generalFrame,"UICheckButtonTemplate")
+mmCheck:SetSize(24,24); mmCheck:SetPoint("TOPLEFT", whisperCheck, "BOTTOMLEFT", 0, -4)
+local mmLbl = _G["CSGenMinimapCheckText"]
+if mmLbl then mmLbl:SetText("Minimap Button") end
+mmCheck:SetScript("OnClick", function(self)
+    local cb = API.minimapBtnCheckbox
+    if cb then cb:SetChecked(self:GetChecked()); cb:GetScript("OnClick")(cb) end
+end)
+
+-- Keep mirror checks in sync when hidden Core checkboxes change
+if API.minimapBtnCheckbox then
+    API.minimapBtnCheckbox:HookScript("OnClick", function(self) mmCheck:SetChecked(self:GetChecked()) end)
+end
+
+-- Resource Bars toggle
+local resBarsCheck = CreateFrame("CheckButton","CSGenResBarsCheck",generalFrame,"UICheckButtonTemplate")
+resBarsCheck:SetSize(24,24); resBarsCheck:SetPoint("TOPLEFT", mmCheck, "BOTTOMLEFT", 0, -4)
+local resBarsLbl = _G["CSGenResBarsCheckText"]
+if resBarsLbl then resBarsLbl:SetText("Resource Bars") end
+resBarsCheck:SetScript("OnClick", function(self)
+    local enabled = self:GetChecked()
+    if RogUIDB then RogUIDB.resourceBarsEnabled = enabled end
+    local cb = API.resourceBarsEnabledCheckbox
+    if cb then
+        cb:SetChecked(enabled)
+        if API.RebuildLiveBars then API.RebuildLiveBars() end
+    end
+end)
+
+-- Rogue Poison Alert toggle
+local poisonCheck = CreateFrame("CheckButton","CSGenPoisonCheck",generalFrame,"UICheckButtonTemplate")
+poisonCheck:SetSize(24,24); poisonCheck:SetPoint("TOPLEFT", resBarsCheck, "BOTTOMLEFT", 0, -4)
+local poisonLbl = _G["CSGenPoisonCheckText"]
+if poisonLbl then poisonLbl:SetText("Rogue Missing Poison Alert") end
+poisonCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.poisonAlertEnabled = self:GetChecked() end
+end)
+
+-- Raid Buff Checker toggle
+local raidbuffCheck = CreateFrame("CheckButton","CSGenRaidbuffCheck",generalFrame,"UICheckButtonTemplate")
+raidbuffCheck:SetSize(24,24); raidbuffCheck:SetPoint("TOPLEFT", poisonCheck, "BOTTOMLEFT", 0, -4)
+local raidbuffLbl = _G["CSGenRaidbuffCheckText"]
+if raidbuffLbl then raidbuffLbl:SetText("Raid Buff Checker (on Ready Check)") end
+raidbuffCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.raidbuffCheckEnabled = self:GetChecked() end
+end)
+
+-- Battle Rez Tracker toggle
+local brezCheck = CreateFrame("CheckButton","CSGenBrezCheck",generalFrame,"UICheckButtonTemplate")
+brezCheck:SetSize(24,24); brezCheck:SetPoint("TOPLEFT", raidbuffCheck, "BOTTOMLEFT", 0, -4)
+local brezLbl = _G["CSGenBrezCheckText"]
+if brezLbl then brezLbl:SetText("Battle Rez Tracker") end
+brezCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.battlerezEnabled = self:GetChecked() end
+    if API.UpdateBrezFrame then API.UpdateBrezFrame() end
+end)
+
+-- Prey Bar toggle
+local preyBarCheck = CreateFrame("CheckButton","CSGenPreyBarCheck",generalFrame,"UICheckButtonTemplate")
+preyBarCheck:SetSize(24,24); preyBarCheck:SetPoint("TOPLEFT", brezCheck, "BOTTOMLEFT", 0, -4)
+local preyBarLbl = _G["CSGenPreyBarCheckText"]
+if preyBarLbl then preyBarLbl:SetText("Prey Hunt Progress Bar  |cFFAAAAAA(shows while on a Prey quest)|r") end
+preyBarCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.preyBarEnabled = self:GetChecked() end
+    if API.UpdatePreyBar then API.UpdatePreyBar() end
+end)
+
+-- Debug Mode toggle
+local debugCheck = CreateFrame("CheckButton","CSGenDebugCheck",generalFrame,"UICheckButtonTemplate")
+debugCheck:SetSize(24,24); debugCheck:SetPoint("TOPLEFT", preyBarCheck, "BOTTOMLEFT", 0, -4)
+local debugLbl = _G["CSGenDebugCheckText"]
+if debugLbl then debugLbl:SetText("Debug Mode  |cFFAAAAAA(/mqldebug)|r") end
+debugCheck:SetScript("OnClick", function(self)
+    API.DEBUG = self:GetChecked()
+    if RogUIDB then RogUIDB.debugEnabled = API.DEBUG end
+    if API.DEBUG then
+        if API.EnableErrorLog then API.EnableErrorLog() end
+    else
+        if API.DisableErrorLog then API.DisableErrorLog() end
+    end
+    print("|cFF00FF00[RogUI]|r Debug mode " .. (API.DEBUG and "|cFFFFFF00ENABLED|r — errors will be saved to SavedVariables on logout" or "|cFFAAAAAAdisabled|r"))
+end)
+
+-- Bag Upgrade Indicator toggle
+local bagUpgradeCheck = CreateFrame("CheckButton","CSGenBagUpgradeCheck",generalFrame,"UICheckButtonTemplate")
+bagUpgradeCheck:SetSize(24,24); bagUpgradeCheck:SetPoint("TOPLEFT", debugCheck, "BOTTOMLEFT", 0, -4)
+local bagUpgradeLbl = _G["CSGenBagUpgradeCheckText"]
+if bagUpgradeLbl then bagUpgradeLbl:SetText("Bag Upgrade Indicator  |cFFAAAAAA(green badge on ilvl upgrades)|r") end
+bagUpgradeCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.bagUpgradeEnabled = self:GetChecked() end
+    if API.BagUpgradeScan then API.BagUpgradeScan() end
+end)
+
+-- Sell Confirm toggle
+local sellConfirmCheck = CreateFrame("CheckButton","CSGenSellConfirmCheck",generalFrame,"UICheckButtonTemplate")
+sellConfirmCheck:SetSize(24,24); sellConfirmCheck:SetPoint("TOPLEFT", bagUpgradeCheck, "BOTTOMLEFT", 0, -4)
+local sellConfirmLbl = _G["CSGenSellConfirmCheckText"]
+if sellConfirmLbl then sellConfirmLbl:SetText("Sell Confirm for Set Items  |cFFAAAAAA(prompts buyback if you sell a tier/armor set piece)|r") end
+sellConfirmCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.sellConfirmEnabled = self:GetChecked() end
+end)
+
+-- Damage Meter Auto-Reset toggle
+local meterResetCheck = CreateFrame("CheckButton","CSGenMeterResetCheck",generalFrame,"UICheckButtonTemplate")
+meterResetCheck:SetSize(24,24); meterResetCheck:SetPoint("TOPLEFT", sellConfirmCheck, "BOTTOMLEFT", 0, -4)
+local meterResetLbl = _G["CSGenMeterResetCheckText"]
+if meterResetLbl then meterResetLbl:SetText("Damage Meter Auto-Reset  |cFFAAAAAA(prompts on instance entry)|r") end
+meterResetCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.meterAutoReset = self:GetChecked() end
+end)
+
+-- Hide Action Bars toggle
+local hideActionBarsCheck = CreateFrame("CheckButton","CSGenHideActionBarsCheck",generalFrame,"UICheckButtonTemplate")
+hideActionBarsCheck:SetSize(24,24); hideActionBarsCheck:SetPoint("TOPLEFT", meterResetCheck, "BOTTOMLEFT", 0, -4)
+local hideABLbl = _G["CSGenHideActionBarsCheckText"]
+if hideABLbl then hideABLbl:SetText("Hide Action Bars  |cFFAAAAAA(hides MainMenuBar and all default bars)|r") end
+hideActionBarsCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.hideActionBars = self:GetChecked() end
+    if API.ApplyActionBarVisibility then API.ApplyActionBarVisibility() end
+end)
+
+-- ── Section: Modules ──────────────────────────────────────────────────────────
+-- One checkbox per non-General tab. Hiding a tab removes its button from the bar.
+-- ── UI Fading ─────────────────────────────────────────────────────────────────
+local fadeHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+fadeHeader:SetPoint("TOPLEFT", hideActionBarsCheck, "BOTTOMLEFT", 0, -24)
+fadeHeader:SetText("|cFFFFD700UI Fading|r")
+
+local fadeDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+fadeDesc:SetPoint("TOPLEFT", fadeHeader, "BOTTOMLEFT", 0, -4)
+fadeDesc:SetText("Set opacity for UI elements. 100% = fully visible.")
+fadeDesc:SetTextColor(0.6,0.6,0.6,1)
+
+-- Helper: create a labelled alpha slider (0–100% in 5% steps)
+local FADE_SLIDER_W = 200
+local function MakeAlphaSlider(anchorFrame, labelText, dbKey, applyFn)
+    local lbl = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    lbl:SetPoint("TOPLEFT", anchorFrame, "BOTTOMLEFT", 0, -14)
+    lbl:SetText(labelText)
+    lbl:SetTextColor(1,1,1,1)
+
+    local slider = CreateFrame("Slider", nil, generalFrame, "UISliderTemplate")
+    slider:SetSize(FADE_SLIDER_W, 16)
+    slider:SetPoint("TOPLEFT", lbl, "BOTTOMLEFT", 0, -10)
+    slider:SetMinMaxValues(0, 100)
+    slider:SetValueStep(5)
+    slider:SetObeyStepOnDrag(true)
+
+    -- Value label to the right
+    local valLbl = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    valLbl:SetPoint("LEFT", slider, "RIGHT", 8, 0)
+
+    local function OnValueChanged(self, val)
+        val = math.floor(val / 5 + 0.5) * 5  -- snap to 5%
+        valLbl:SetText(val .. "%")
+        if RogUIDB then RogUIDB[dbKey] = val end
+        if applyFn then applyFn(val / 100) end
+    end
+    slider:SetScript("OnValueChanged", OnValueChanged)
+
+    -- Sync from DB
+    slider.Sync = function()
+        local saved = RogUIDB and RogUIDB[dbKey]
+        local v = (saved ~= nil) and saved or 100
+        slider:SetValue(v)
+        valLbl:SetText(v .. "%")
+    end
+
+    return slider  -- bottom anchor for next widget
+end
+
+-- Apply functions
+local function ApplyMinimapAlpha(a)
+    if Minimap then Minimap:SetAlpha(a) end
+    if MinimapCluster then MinimapCluster:SetAlpha(a) end
+end
+
+local UNIT_FRAMES = {
+    "PlayerFrame","TargetFrame","FocusFrame",
+    "PartyMemberFrame1","PartyMemberFrame2","PartyMemberFrame3","PartyMemberFrame4",
+}
+local function ApplyUnitFrameAlpha(a)
+    for _, name in ipairs(UNIT_FRAMES) do
+        local f = _G[name]
+        if f and f.SetAlpha then f:SetAlpha(a) end
+    end
+    if RogUIDB then RogUIDB.uiFadeUnitFrames = math.floor(a * 100 + 0.5) end
+end
+
+-- NOTE: Nameplate alpha CVars (nameplateMaxAlpha etc.) are "secure CVars" in WoW.
+-- Blizzard blocks addons from calling SetCVar on secure CVars entirely — no timer
+-- or deferral trick works around this. Nameplate opacity must be set manually via
+-- Game Menu > Options > Accessibility > Nameplates, or with /console nameplateMaxAlpha.
+local npNote = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+npNote:SetPoint("TOPLEFT", fadeDesc, "BOTTOMLEFT", 0, -14)
+npNote:SetText("|cFFFFAAAANameplates:|r Blizzard blocks addons from changing nameplate opacity.\nUse |cFFFFD700Game Menu > Options > Accessibility > Nameplates|r instead.")
+npNote:SetTextColor(0.8, 0.8, 0.8, 1)
+npNote:SetJustifyH("LEFT")
+npNote:SetWidth(420)
+
+local ACTION_BAR_FRAMES = {
+    "MainMenuBar",
+    "ActionBar1",
+    "MultiBarBottomLeft", "MultiBarBottomRight",
+    "MultiBarLeft", "MultiBarRight",
+    "MultiBar5", "MultiBar6", "MultiBar7",
+    "StanceBar", "PetActionBar", "PossessActionBar",
+    "OverrideActionBar",
+}
+local function ApplyActionBarAlpha(a)
+    for _, name in ipairs(ACTION_BAR_FRAMES) do
+        local f = _G[name]
+        if f and f.SetAlpha then f:SetAlpha(a) end
+    end
+    if RogUIDB then RogUIDB.uiFadeActionBars = math.floor(a * 100 + 0.5) end
+end
+
+-- Hide/show MainMenuBar (and all its children) based on the DB flag.
+-- Called on checkbox click and after every load screen.
+local function ApplyActionBarVisibility()
+    local hide = RogUIDB and RogUIDB.hideActionBars
+    if MainMenuBar then MainMenuBar:SetShown(not hide) end
+end
+API.ApplyActionBarVisibility = ApplyActionBarVisibility
+
+local mmSlider  = MakeAlphaSlider(npNote,   "Minimap",                                "uiFadeMinimap",    ApplyMinimapAlpha)
+local ufSlider  = MakeAlphaSlider(mmSlider, "Unit Frames (player/target/focus/party)", "uiFadeUnitFrames", ApplyUnitFrameAlpha)
+local abSlider  = MakeAlphaSlider(ufSlider, "Action Bars",                             "uiFadeActionBars", ApplyActionBarAlpha)
+
+-- Expose sync so SyncGeneralUI can call it
+local function SyncFadeSliders()
+    mmSlider.Sync(); ufSlider.Sync(); abSlider.Sync()
+end
+API.SyncFadeSliders = SyncFadeSliders
+
+-- Apply saved values on login/zone
+local fadeApplyEvents = CreateFrame("Frame")
+fadeApplyEvents:RegisterEvent("PLAYER_LOGIN")
+fadeApplyEvents:RegisterEvent("PLAYER_ENTERING_WORLD")
+fadeApplyEvents:SetScript("OnEvent", function()
+    local db = RogUIDB
+    if not db then return end
+    local mmA = ((db.uiFadeMinimap    ~= nil) and db.uiFadeMinimap    or 100) / 100
+    local ufA = ((db.uiFadeUnitFrames ~= nil) and db.uiFadeUnitFrames or 100) / 100
+    local abA = ((db.uiFadeActionBars ~= nil) and db.uiFadeActionBars or 100) / 100
+    C_Timer.After(0.5, function()
+        ApplyMinimapAlpha(mmA)
+        ApplyUnitFrameAlpha(ufA)
+        ApplyActionBarAlpha(abA)
+        ApplyActionBarVisibility()  -- re-hide bars if the setting is on
+    end)
+end)
+
+local modulesHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+modulesHeader:SetPoint("TOPLEFT", abSlider, "BOTTOMLEFT", 0, -30)
+modulesHeader:SetText("|cFFFFD700Modules|r")
+
+local modulesDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontHighlightSmall")
+modulesDesc:SetPoint("TOPLEFT", modulesHeader, "BOTTOMLEFT", 0, -4)
+modulesDesc:SetText("Show or hide tabs in the configuration window.")
+modulesDesc:SetTextColor(0.6,0.6,0.6)
+
+-- Each entry: { tab label, DB-friendly key, display label }
+local MODULE_TABS = {
+    { label="Alerts",    key="Alerts",    display="Alerts"    },
+    { label="Bags",      key="Bags",      display="Bags"      },
+    { label="Castbar",   key="Castbar",   display="Castbar"   },
+    { label="Keystones", key="Keystones", display="Keystones" },
+    { label="Layouts",   key="Layouts",   display="Layouts"   },
+    { label="Resources", key="Resources", display="Resources" },
+    { label="SmartSwap", key="SmartSwap", display="SmartSwap" },
+    { label="Whisper",   key="Whisper",   display="Whisper"   },
+    { label="Defaults",  key="Defaults",  display="Defaults"  },
+    { label="Profiles",  key="Profiles",  display="Profiles"  },
+}
+
+local moduleChecks = {}
+local prevAnchor = modulesDesc
+for idx, mod in ipairs(MODULE_TABS) do
+    local cb = CreateFrame("CheckButton","CSGenModuleCheck"..mod.key,generalFrame,"UICheckButtonTemplate")
+    cb:SetSize(24,24)
+    cb:SetPoint("TOPLEFT", prevAnchor, "BOTTOMLEFT", 0, idx == 1 and -8 or -4)
+    local lbl = _G["CSGenModuleCheck"..mod.key.."Text"]
+    if lbl then lbl:SetText(mod.display) end
+    local tabLabel = mod.label
+    cb:SetScript("OnClick", function(self)
+        if API.SetTabEnabled then API.SetTabEnabled(tabLabel, self:GetChecked()) end
+    end)
+    moduleChecks[mod.key] = cb
+    prevAnchor = cb
+end
+
+-- ── Section: Quest Automation ─────────────────────────────────────────────────
+local questHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+questHeader:SetPoint("TOPLEFT", prevAnchor, "BOTTOMLEFT", 0, -20)
+questHeader:SetText("|cFFFFD700Quest Automation|r")
+
+local questDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+questDesc:SetPoint("TOPLEFT", questHeader, "BOTTOMLEFT", 0, -4)
+questDesc:SetWidth(580); questDesc:SetJustifyH("LEFT"); questDesc:SetWordWrap(true)
+questDesc:SetText("Automatically accept and/or turn in quests without clicking through dialog boxes.")
+
+local autoAcceptCheck = CreateFrame("CheckButton","CSAutoQuestAcceptCheck",generalFrame,"UICheckButtonTemplate")
+autoAcceptCheck:SetSize(24,24); autoAcceptCheck:SetPoint("TOPLEFT", questDesc, "BOTTOMLEFT", 0, -6)
+local aaLbl = _G["CSAutoQuestAcceptCheckText"]
+if aaLbl then aaLbl:SetText("Auto Accept Quests") end
+autoAcceptCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.autoQuestAccept = self:GetChecked() end
+end)
+
+local autoTurnInCheck = CreateFrame("CheckButton","CSAutoQuestTurnInCheck",generalFrame,"UICheckButtonTemplate")
+autoTurnInCheck:SetSize(24,24); autoTurnInCheck:SetPoint("TOPLEFT", autoAcceptCheck, "BOTTOMLEFT", 0, -4)
+local atiLbl = _G["CSAutoQuestTurnInCheckText"]
+if atiLbl then atiLbl:SetText("Auto Turn In Quests") end
+autoTurnInCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.autoQuestTurnIn = self:GetChecked() end
+end)
+
+-- ── Keybind Display ───────────────────────────────────────────────────────────
+local showKeybindsCheck = CreateFrame("CheckButton","CSShowKeybindsCheck",generalFrame,"UICheckButtonTemplate")
+showKeybindsCheck:SetSize(24,24); showKeybindsCheck:SetPoint("TOPLEFT", autoTurnInCheck, "BOTTOMLEFT", 0, -4)
+local skLbl = _G["CSShowKeybindsCheckText"]
+if skLbl then skLbl:SetText("Show Keybinds on Action Bars") end
+showKeybindsCheck:SetScript("OnClick", function(self)
+    if RogUIDB then 
+        RogUIDB.showKeybinds = self:GetChecked()
+        if RogUIAPI.KeybindDisplay and RogUIAPI.KeybindDisplay.Refresh then
+            RogUIAPI.KeybindDisplay.Refresh()
+        end
+    end
+end)
+
+-- ── CooldownManagerKeybinds Integration ──────────────────────────────────────
+local cmkHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+cmkHeader:SetPoint("TOPLEFT", showKeybindsCheck, "BOTTOMLEFT", 0, -20)
+cmkHeader:SetText("|cFFFFD700Cooldown Keybind Overlays|r")
+
+local cmkDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+cmkDesc:SetPoint("TOPLEFT", cmkHeader, "BOTTOMLEFT", 0, -4)
+cmkDesc:SetWidth(580); cmkDesc:SetJustifyH("LEFT"); cmkDesc:SetWordWrap(true)
+cmkDesc:SetText("CooldownManagerKeybinds shows your keybinds on Blizzard Cooldown Manager icons. " ..
+                "Requires the |cFFFFAAAACooldownManagerKeybinds|r addon to be installed and enabled " ..
+                "in your AddOns list. Use |cFFFFFF00/cmk|r to open its settings.")
+
+-- Status label (updated at refresh time)
+local cmkStatusLbl = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+cmkStatusLbl:SetPoint("TOPLEFT", cmkDesc, "BOTTOMLEFT", 0, -6)
+cmkStatusLbl:SetText("|cFFAAAAAACooldownManagerKeybinds status: checking...|r")
+
+-- Open settings button
+local cmkSettingsBtn = CreateFrame("Button", "RogUICMKSettingsBtn", generalFrame, "UIPanelButtonTemplate")
+cmkSettingsBtn:SetSize(160, 22)
+cmkSettingsBtn:SetPoint("TOPLEFT", cmkStatusLbl, "BOTTOMLEFT", 0, -6)
+cmkSettingsBtn:SetText("Open CMK Settings (/cmk)")
+cmkSettingsBtn:SetScript("OnClick", function()
+    if RogUIAPI.CMKOpenSettings then
+        RogUIAPI.CMKOpenSettings()
+    end
+end)
+
+-- Enable/disable toggle
+local cmkEnableCheck = CreateFrame("CheckButton","RogUICMKEnableCheck",generalFrame,"UICheckButtonTemplate")
+cmkEnableCheck:SetSize(24,24)
+cmkEnableCheck:SetPoint("TOPLEFT", cmkSettingsBtn, "BOTTOMLEFT", 0, -4)
+local cmkEnableLbl = _G["RogUICMKEnableCheckText"]
+if cmkEnableLbl then cmkEnableLbl:SetText("Enable CooldownManagerKeybinds") end
+cmkEnableCheck:SetScript("OnClick", function(self)
+    if RogUIAPI.CMKSetEnabled then
+        RogUIAPI.CMKSetEnabled(self:GetChecked())
+    end
+end)
+
+-- Refresh CMK status on panel open (hooked below in the general refresh section)
+local function RefreshCMKStatus()
+    local loaded = RogUIAPI.CMKLoaded
+    if loaded then
+        cmkStatusLbl:SetText("|cFF00FF00CooldownManagerKeybinds: Loaded ✓|r")
+        cmkSettingsBtn:Enable()
+        cmkEnableCheck:Enable()
+        cmkEnableCheck:SetChecked(RogUIAPI.CMKIsEnabled and RogUIAPI.CMKIsEnabled() or true)
+    else
+        cmkStatusLbl:SetText("|cFFFF4444CooldownManagerKeybinds: Not installed / not loaded|r")
+        cmkSettingsBtn:Disable()
+        cmkEnableCheck:Disable()
+        cmkEnableCheck:SetChecked(false)
+    end
+end
+API.RefreshCMKStatus = RefreshCMKStatus
+
+local questNoteLbl = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+questNoteLbl:SetPoint("TOPLEFT", cmkEnableCheck, "BOTTOMLEFT", 24, -4)
+questNoteLbl:SetTextColor(0.7, 0.7, 0.7, 1)
+questNoteLbl:SetText("|cFFFF8800Note:|r Auto turn-in skips reward selection dialogs. Quests with multiple reward choices still require manual selection.")
+
+-- ── Section: Experience Bar ───────────────────────────────────────────────────
+local expHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+expHeader:SetPoint("TOPLEFT", questNoteLbl, "BOTTOMLEFT", -24, -20)
+expHeader:SetText("|cFFFFD700Experience Bar|r")
+
+local expDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+expDesc:SetPoint("TOPLEFT", expHeader, "BOTTOMLEFT", 0, -4)
+expDesc:SetWidth(580); expDesc:SetJustifyH("LEFT"); expDesc:SetWordWrap(true)
+expDesc:SetText("Slim styled XP bar shown above your action bar. Drag it to reposition, or use the position fields below.")
+
+local expEnableCheck = CreateFrame("CheckButton","CSExpBarEnableCheck",generalFrame,"UICheckButtonTemplate")
+expEnableCheck:SetSize(24,24); expEnableCheck:SetPoint("TOPLEFT", expDesc, "BOTTOMLEFT", 0, -6)
+local expEnableLbl = _G["CSExpBarEnableCheckText"]
+if expEnableLbl then expEnableLbl:SetText("Enable Experience Bar") end
+expEnableCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.expBarEnabled = self:GetChecked() end
+    if API.UpdateExpBar then API.UpdateExpBar() end
+end)
+
+local expTextCheck = CreateFrame("CheckButton","CSExpBarTextCheck",generalFrame,"UICheckButtonTemplate")
+expTextCheck:SetSize(24,24); expTextCheck:SetPoint("TOPLEFT", expEnableCheck, "BOTTOMLEFT", 0, -4)
+local expTextLbl = _G["CSExpBarTextCheckText"]
+if expTextLbl then expTextLbl:SetText("Show XP Text") end
+expTextCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.expBarShowText = self:GetChecked() end
+    if API.UpdateExpBar then API.UpdateExpBar() end
+end)
+
+local expTTLCheck = CreateFrame("CheckButton","CSExpBarTTLCheck",generalFrame,"UICheckButtonTemplate")
+expTTLCheck:SetSize(24,24); expTTLCheck:SetPoint("TOPLEFT", expTextCheck, "BOTTOMLEFT", 24, -2)
+local expTTLLbl = _G["CSExpBarTTLCheckText"]
+if expTTLLbl then expTTLLbl:SetText("Show Time to Level  |cFFAAAAAA(requires XP gain to calculate)|r") end
+expTTLCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.expBarShowTTL = self:GetChecked() end
+    if API.UpdateExpBar then API.UpdateExpBar() end
+end)
+
+local expRestedCheck = CreateFrame("CheckButton","CSExpBarRestedCheck",generalFrame,"UICheckButtonTemplate")
+expRestedCheck:SetSize(24,24); expRestedCheck:SetPoint("TOPLEFT", expTTLCheck, "BOTTOMLEFT", -24, -4)
+local expRestedLbl = _G["CSExpBarRestedCheckText"]
+if expRestedLbl then expRestedLbl:SetText("Show Rested XP Overlay") end
+expRestedCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.expBarShowRested = self:GetChecked() end
+    if API.UpdateExpBar then API.UpdateExpBar() end
+end)
+
+local expRepCheck = CreateFrame("CheckButton","CSExpBarRepCheck",generalFrame,"UICheckButtonTemplate")
+expRepCheck:SetSize(24,24); expRepCheck:SetPoint("TOPLEFT", expRestedCheck, "BOTTOMLEFT", 0, -4)
+local expRepLbl = _G["CSExpBarRepCheckText"]
+if expRepLbl then expRepLbl:SetText("Show Reputation Bar at Max Level  |cFFAAAAAA(only if Hide at Max is off)|r") end
+expRepCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.expBarShowRep = self:GetChecked() end
+    if API.UpdateExpBar then API.UpdateExpBar() end
+end)
+
+local expHideMaxCheck = CreateFrame("CheckButton","CSExpBarHideMaxCheck",generalFrame,"UICheckButtonTemplate")
+expHideMaxCheck:SetSize(24,24); expHideMaxCheck:SetPoint("TOPLEFT", expRepCheck, "BOTTOMLEFT", 0, -4)
+local expHideMaxLbl = _G["CSExpBarHideMaxCheckText"]
+if expHideMaxLbl then expHideMaxLbl:SetText("Hide at Max Level") end
+expHideMaxCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.expBarHideAtMax = self:GetChecked() end
+    if API.UpdateExpBar then API.UpdateExpBar() end
+end)
+
+-- Width / Height sliders (built manually — UISliderTemplate child names are unreliable)
+-- Width / Height inputs
+local expSizeLabel = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+expSizeLabel:SetPoint("TOPLEFT", expHideMaxCheck, "BOTTOMLEFT", 0, -20)
+expSizeLabel:SetText("Width:")
+
+local expWidthEdit = CreateFrame("EditBox", "CSExpBarWidthEdit", generalFrame, "InputBoxTemplate")
+expWidthEdit:SetSize(60, 20)
+expWidthEdit:SetPoint("LEFT", expSizeLabel, "RIGHT", 6, 0)
+expWidthEdit:SetAutoFocus(false)
+expWidthEdit:SetNumeric(true)
+expWidthEdit:SetScript("OnEnterPressed", function(self)
+    local val = math.max(100, math.min(1800, tonumber(self:GetText()) or 600))
+    self:SetText(tostring(val))
+    self:ClearFocus()
+    if RogUIDB then RogUIDB.expBarWidth = val end
+    if API.ApplyExpBarSettings then API.ApplyExpBarSettings() end
+end)
+expWidthEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+local expHeightLabel = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+expHeightLabel:SetPoint("LEFT", expWidthEdit, "RIGHT", 16, 0)
+expHeightLabel:SetText("Height:")
+
+local expHeightEdit = CreateFrame("EditBox", "CSExpBarHeightEdit", generalFrame, "InputBoxTemplate")
+expHeightEdit:SetSize(44, 20)
+expHeightEdit:SetPoint("LEFT", expHeightLabel, "RIGHT", 6, 0)
+expHeightEdit:SetAutoFocus(false)
+expHeightEdit:SetNumeric(true)
+expHeightEdit:SetScript("OnEnterPressed", function(self)
+    local val = math.max(2, math.min(60, tonumber(self:GetText()) or 10))
+    self:SetText(tostring(val))
+    self:ClearFocus()
+    if RogUIDB then RogUIDB.expBarHeight = val end
+    if API.ApplyExpBarSettings then API.ApplyExpBarSettings() end
+end)
+expHeightEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+local expSizeTip = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+expSizeTip:SetPoint("LEFT", expHeightEdit, "RIGHT", 10, 0)
+expSizeTip:SetTextColor(0.6, 0.6, 0.6, 1)
+expSizeTip:SetText("(press Enter to apply  •  or use Edit Layout to drag & resize)")
+
+-- ── Bar colors ────────────────────────────────────────────────────────────────
+local expColorsHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+expColorsHeader:SetPoint("TOPLEFT", expSizeLabel, "BOTTOMLEFT", 0, -22)
+expColorsHeader:SetText("Bar Colors:")
+expColorsHeader:SetTextColor(1, 1, 1, 1)
+
+local function MakeExpColorSwatch(labelText, anchorLeft, dbR, dbG, dbB, onApply)
+    local lbl = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    lbl:SetPoint("LEFT", anchorLeft, "RIGHT", 14, 0)
+    lbl:SetTextColor(0.75, 0.75, 0.75, 1)
+    lbl:SetText(labelText)
+
+    local swatch = generalFrame:CreateTexture(nil,"ARTWORK")
+    swatch:SetSize(16,16)
+    swatch:SetPoint("LEFT", lbl, "RIGHT", 5, 0)
+    swatch:SetColorTexture(dbR, dbG, dbB, 1)
+
+    local btn = CreateFrame("Button", nil, generalFrame, "UIPanelButtonTemplate")
+    btn:SetSize(40, 18)
+    btn:SetPoint("LEFT", swatch, "RIGHT", 4, 0)
+    btn:SetText("Pick")
+    btn.swatch = swatch
+    btn:SetScript("OnClick", function()
+        local r = (RogUIDB and RogUIDB[dbR]) or dbR
+        local g = (RogUIDB and RogUIDB[dbG]) or dbG
+        local b = (RogUIDB and RogUIDB[dbB]) or dbB
+        -- dbR/dbG/dbB here are actually the current values passed in, use swatch color
+        local sr, sg, sb = swatch:GetVertexColor()
+        if ColorPickerFrame.SetupColorPickerAndShow then
+            ColorPickerFrame:SetupColorPickerAndShow({
+                hasOpacity=false, r=sr, g=sg, b=sb,
+                swatchFunc = function()
+                    local nr,ng,nb = ColorPickerFrame:GetColorRGB()
+                    swatch:SetColorTexture(nr,ng,nb,1); onApply(nr,ng,nb)
+                end,
+                okayFunc = function()
+                    local nr,ng,nb = ColorPickerFrame:GetColorRGB()
+                    swatch:SetColorTexture(nr,ng,nb,1); onApply(nr,ng,nb)
+                end,
+                cancelFunc = function(prev)
+                    swatch:SetColorTexture(prev.r,prev.g,prev.b,1); onApply(prev.r,prev.g,prev.b)
+                end,
+            })
+        else
+            ColorPickerFrame.func = function()
+                local nr,ng,nb = ColorPickerFrame:GetColorRGB()
+                swatch:SetColorTexture(nr,ng,nb,1); onApply(nr,ng,nb)
+            end
+            ColorPickerFrame.cancelFunc = function(prev)
+                swatch:SetColorTexture(prev.r,prev.g,prev.b,1); onApply(prev.r,prev.g,prev.b)
+            end
+            ColorPickerFrame.hasOpacity = false
+            ColorPickerFrame:SetColorRGB(sr,sg,sb); ShowUIPanel(ColorPickerFrame)
+        end
+    end)
+    return btn, swatch
+end
+
+-- XP fill
+local expXpColorBtn, expXpColorSwatch = MakeExpColorSwatch("XP", expColorsHeader,
+    0.0, 0.6, 1.0,
+    function(r,g,b)
+        if RogUIDB then RogUIDB.expBarColorR=r; RogUIDB.expBarColorG=g; RogUIDB.expBarColorB=b end
+        if API.ApplyExpBarSettings then API.ApplyExpBarSettings() end
+    end)
+
+-- Rested overlay
+local expRestColorBtn, expRestColorSwatch = MakeExpColorSwatch("Rested", expXpColorBtn,
+    0.3, 0.0, 0.8,
+    function(r,g,b)
+        if RogUIDB then RogUIDB.expBarRestedR=r; RogUIDB.expBarRestedG=g; RogUIDB.expBarRestedB=b end
+        if API.ApplyExpBarSettings then API.ApplyExpBarSettings() end
+    end)
+
+-- Background
+local expBgColorBtn, expBgColorSwatch = MakeExpColorSwatch("BG", expRestColorBtn,
+    0.0, 0.0, 0.0,
+    function(r,g,b)
+        if RogUIDB then RogUIDB.expBarBgR=r; RogUIDB.expBarBgG=g; RogUIDB.expBarBgB=b end
+        if API.ApplyExpBarSettings then API.ApplyExpBarSettings() end
+    end)
+
+-- Reputation bar
+local expRepColorBtn, expRepColorSwatch = MakeExpColorSwatch("Rep", expBgColorBtn,
+    0.8, 0.2, 1.0,
+    function(r,g,b)
+        if RogUIDB then RogUIDB.expBarRepR=r; RogUIDB.expBarRepG=g; RogUIDB.expBarRepB=b end
+        if API.UpdateExpBar then API.UpdateExpBar() end
+    end)
+
+-- Pending quests color (on new line)
+local expPendingColorRow = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+expPendingColorRow:SetPoint("TOPLEFT", expColorsHeader, "BOTTOMLEFT", 0, -28)
+expPendingColorRow:SetText("Completed Quests:")
+expPendingColorRow:SetTextColor(1, 1, 1, 1)
+
+local expPendingColorBtn, expPendingColorSwatch = MakeExpColorSwatch("", expPendingColorRow,
+    1.0, 0.85, 0.0,
+    function(r,g,b)
+        if RogUIDB then RogUIDB.expBarPendingR=r; RogUIDB.expBarPendingG=g; RogUIDB.expBarPendingB=b end
+        if API.ApplyExpBarSettings then API.ApplyExpBarSettings() end
+    end)
+
+local expColorLastAnchor = expPendingColorRow  -- leftmost element on last color row
+
+-- ── Section: Reputation Bar ───────────────────────────────────────────────────
+local repBarHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+repBarHeader:SetPoint("TOPLEFT", expPendingColorRow, "BOTTOMLEFT", 0, -20)
+repBarHeader:SetText("|cFFFF80FFReputation Bar|r")
+
+local repBarDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+repBarDesc:SetPoint("TOPLEFT", repBarHeader, "BOTTOMLEFT", 0, -4)
+repBarDesc:SetText("Shows your tracked faction standing with pending quest rep overlay.")
+
+local repEnableCheck = CreateFrame("CheckButton","CSRepBarEnableCheck",generalFrame,"UICheckButtonTemplate")
+repEnableCheck:SetSize(24,24); repEnableCheck:SetPoint("TOPLEFT", repBarDesc, "BOTTOMLEFT", 0, -4)
+local repEnableLbl = _G["CSRepBarEnableCheckText"]
+if repEnableLbl then repEnableLbl:SetText("Enable Reputation Bar") end
+repEnableCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.repBarEnabled = self:GetChecked() end
+    if API.UpdateRepBar then API.UpdateRepBar() end
+end)
+
+local repTextCheck = CreateFrame("CheckButton","CSRepBarTextCheck",generalFrame,"UICheckButtonTemplate")
+repTextCheck:SetSize(24,24); repTextCheck:SetPoint("TOPLEFT", repEnableCheck, "BOTTOMLEFT", 0, -4)
+local repTextLbl = _G["CSRepBarTextCheckText"]
+if repTextLbl then repTextLbl:SetText("Show Rep Text") end
+repTextCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.repBarShowText = self:GetChecked() end
+    if API.UpdateRepBar then API.UpdateRepBar() end
+end)
+
+-- Width / Height
+local repSizeLabel = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+repSizeLabel:SetPoint("TOPLEFT", repTextCheck, "BOTTOMLEFT", 0, -14)
+repSizeLabel:SetText("Width:")
+
+local repWidthEdit = CreateFrame("EditBox","CSRepBarWidthEdit",generalFrame,"InputBoxTemplate")
+repWidthEdit:SetSize(60,20); repWidthEdit:SetPoint("LEFT", repSizeLabel, "RIGHT", 6, 0)
+repWidthEdit:SetAutoFocus(false); repWidthEdit:SetNumeric(true)
+repWidthEdit:SetScript("OnEnterPressed", function(self)
+    local val = math.max(100, math.min(1800, tonumber(self:GetText()) or 600))
+    self:SetText(tostring(val)); self:ClearFocus()
+    if RogUIDB then RogUIDB.repBarWidth = val end
+    if API.ApplyRepBarSettings then API.ApplyRepBarSettings() end
+end)
+repWidthEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+local repHeightLabel = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+repHeightLabel:SetPoint("LEFT", repWidthEdit, "RIGHT", 16, 0)
+repHeightLabel:SetText("Height:")
+
+local repHeightEdit = CreateFrame("EditBox","CSRepBarHeightEdit",generalFrame,"InputBoxTemplate")
+repHeightEdit:SetSize(44,20); repHeightEdit:SetPoint("LEFT", repHeightLabel, "RIGHT", 6, 0)
+repHeightEdit:SetAutoFocus(false); repHeightEdit:SetNumeric(true)
+repHeightEdit:SetScript("OnEnterPressed", function(self)
+    local val = math.max(2, math.min(60, tonumber(self:GetText()) or 10))
+    self:SetText(tostring(val)); self:ClearFocus()
+    if RogUIDB then RogUIDB.repBarHeight = val end
+    if API.ApplyRepBarSettings then API.ApplyRepBarSettings() end
+end)
+repHeightEdit:SetScript("OnEscapePressed", function(self) self:ClearFocus() end)
+
+-- Rep bar colors
+local repColorsHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+repColorsHeader:SetPoint("TOPLEFT", repSizeLabel, "BOTTOMLEFT", 0, -22)
+repColorsHeader:SetText("Bar Colors:")
+repColorsHeader:SetTextColor(1, 1, 1, 1)
+
+local function MakeRepColorSwatch(labelText, anchorLeft, onApply)
+    local lbl = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    lbl:SetPoint("LEFT", anchorLeft, "RIGHT", 14, 0)
+    lbl:SetTextColor(0.75, 0.75, 0.75, 1); lbl:SetText(labelText)
+    local swatch = generalFrame:CreateTexture(nil,"ARTWORK")
+    swatch:SetSize(16,16); swatch:SetPoint("LEFT", lbl, "RIGHT", 5, 0)
+    local btn = CreateFrame("Button",nil,generalFrame,"UIPanelButtonTemplate")
+    btn:SetSize(40,18); btn:SetPoint("LEFT", swatch, "RIGHT", 4, 0); btn:SetText("Pick")
+    btn:SetScript("OnClick", function()
+        local sr,sg,sb = swatch:GetVertexColor()
+        if ColorPickerFrame.SetupColorPickerAndShow then
+            ColorPickerFrame:SetupColorPickerAndShow({
+                hasOpacity=false, r=sr, g=sg, b=sb,
+                swatchFunc = function() local r,g,b=ColorPickerFrame:GetColorRGB(); swatch:SetColorTexture(r,g,b,1); onApply(r,g,b) end,
+                okayFunc   = function() local r,g,b=ColorPickerFrame:GetColorRGB(); swatch:SetColorTexture(r,g,b,1); onApply(r,g,b) end,
+                cancelFunc = function(p) swatch:SetColorTexture(p.r,p.g,p.b,1); onApply(p.r,p.g,p.b) end,
+            })
+        else
+            ColorPickerFrame.func = function() local r,g,b=ColorPickerFrame:GetColorRGB(); swatch:SetColorTexture(r,g,b,1); onApply(r,g,b) end
+            ColorPickerFrame.cancelFunc = function(p) swatch:SetColorTexture(p.r,p.g,p.b,1); onApply(p.r,p.g,p.b) end
+            ColorPickerFrame.hasOpacity=false; ColorPickerFrame:SetColorRGB(sr,sg,sb); ShowUIPanel(ColorPickerFrame)
+        end
+    end)
+    return btn, swatch
+end
+
+local repFillColorBtn,  repFillColorSwatch  = MakeRepColorSwatch("Rep",     repColorsHeader,
+    function(r,g,b) if RogUIDB then RogUIDB.repBarFillR=r; RogUIDB.repBarFillG=g; RogUIDB.repBarFillB=b end; if API.ApplyRepBarSettings then API.ApplyRepBarSettings() end end)
+local repBgColorBtn,    repBgColorSwatch    = MakeRepColorSwatch("BG",      repFillColorBtn,
+    function(r,g,b) if RogUIDB then RogUIDB.repBarBgR=r; RogUIDB.repBarBgG=g; RogUIDB.repBarBgB=b end; if API.ApplyRepBarSettings then API.ApplyRepBarSettings() end end)
+local repPendColorBtn,  repPendColorSwatch  = MakeRepColorSwatch("Pending", repBgColorBtn,
+    function(r,g,b) if RogUIDB then RogUIDB.repBarPendingR=r; RogUIDB.repBarPendingG=g; RogUIDB.repBarPendingB=b end; if API.ApplyRepBarSettings then API.ApplyRepBarSettings() end end)
+
+-- ── Section: Pet Reminder ─────────────────────────────────────────────────────
+local petHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+petHeader:SetPoint("TOPLEFT", repColorsHeader, "BOTTOMLEFT", 0, -20)
+petHeader:SetText("|cFFFFD700Pet Reminder|r")
+
+local petDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+petDesc:SetPoint("TOPLEFT", petHeader, "BOTTOMLEFT", 0, -4)
+petDesc:SetText("Reminds Hunters and Warlocks to summon a pet on enter, spec change, and ready check.")
+
+local petEnableCheck = MakeCheck("CSPetReminderCheck", generalFrame, "Enable pet reminder", petDesc, -4)
+petEnableCheck:SetScript("OnClick", function(self)
+    if RogUIDB then RogUIDB.petReminderEnabled = self:GetChecked() end
+end)
+
+local petMoveTip = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+petMoveTip:SetPoint("TOPLEFT", petEnableCheck, "BOTTOMLEFT", 0, -8)
+petMoveTip:SetTextColor(0.7,0.9,1,1); petMoveTip:SetText("To reposition: click |cFFFFD700Edit Layout|r below")
+
+-- Pet sound selector
+local petSoundLabel = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+petSoundLabel:SetPoint("TOPLEFT", petEnableCheck, "BOTTOMLEFT", 0, -34)
+petSoundLabel:SetText("Alert Sound:")
+
+local petSoundDropdown = API.CreateSoundSelectorButton(generalFrame, "CSPetSoundDropdown")
+petSoundDropdown:SetPoint("LEFT", petSoundLabel, "RIGHT", 6, 0)
+petSoundDropdown:SetScript("OnClick", function(self)
+    if not API.OpenSoundPicker then return end
+    API.OpenSoundPicker(self, function(sound)
+        self.selectedSound     = sound.path
+        self.selectedSoundIsID = sound.isID
+        self:SetText(sound.name or "Select Sound")
+        if RogUIDB then
+            RogUIDB.petReminderSound      = sound.path
+            RogUIDB.petReminderSoundIsID  = sound.isID
+        end
+    end)
+end)
+
+local petSoundTestBtn = CreateFrame("Button",nil,generalFrame,"UIPanelButtonTemplate")
+petSoundTestBtn:SetSize(50,22); petSoundTestBtn:SetPoint("LEFT", petSoundDropdown, "RIGHT", 6, 0)
+petSoundTestBtn:SetText("Test")
+petSoundTestBtn:SetScript("OnClick", function()
+    if petSoundDropdown.selectedSound then
+        API.PlayCustomSound(petSoundDropdown.selectedSound, petSoundDropdown.selectedSoundIsID)
+    end
+end)
+
+-- ── Sync function (called when General tab is opened) ─────────────────────────
+local function SyncGeneralUI()
+    if not RogUIDB then return end
+    alertsCheck:SetChecked(RogUIDB.buffDebuffAlertsEnabled == true)
+    whisperCheck:SetChecked(RogUIDB.whisperIndicatorEnabled == true)
+    mmCheck:SetChecked(RogUIDB.minimapBtnShown ~= false)
+    resBarsCheck:SetChecked(RogUIDB.resourceBarsEnabled == true)
+    poisonCheck:SetChecked(RogUIDB.poisonAlertEnabled == true)
+    raidbuffCheck:SetChecked(RogUIDB.raidbuffCheckEnabled == true)
+    brezCheck:SetChecked(RogUIDB.battlerezEnabled == true)
+    preyBarCheck:SetChecked(RogUIDB.preyBarEnabled == true)
+    debugCheck:SetChecked(API.DEBUG or false)
+    bagUpgradeCheck:SetChecked(RogUIDB.bagUpgradeEnabled == true)
+    sellConfirmCheck:SetChecked(RogUIDB.sellConfirmEnabled == true)
+    meterResetCheck:SetChecked(RogUIDB.meterAutoReset == true)
+    hideActionBarsCheck:SetChecked(RogUIDB.hideActionBars == true)
+    autoAcceptCheck:SetChecked(RogUIDB.autoQuestAccept or false)
+    autoTurnInCheck:SetChecked(RogUIDB.autoQuestTurnIn or false)
+    showKeybindsCheck:SetChecked(RogUIDB.showKeybinds or false)
+    -- CMK status
+    if API.RefreshCMKStatus then API.RefreshCMKStatus() end
+    -- Experience bar
+    expEnableCheck:SetChecked(RogUIDB.expBarEnabled ~= false)
+    expTextCheck:SetChecked(RogUIDB.expBarShowText ~= false)
+    expTTLCheck:SetChecked(RogUIDB.expBarShowTTL ~= false)
+    expRestedCheck:SetChecked(RogUIDB.expBarShowRested ~= false)
+    expRepCheck:SetChecked(RogUIDB.expBarShowRep ~= false)
+    expHideMaxCheck:SetChecked(RogUIDB.expBarHideAtMax ~= false)
+    expWidthEdit:SetText(tostring(RogUIDB.expBarWidth or 600))
+    expHeightEdit:SetText(tostring(RogUIDB.expBarHeight or 10))
+    expXpColorSwatch:SetColorTexture(
+        RogUIDB.expBarColorR or 0.0, RogUIDB.expBarColorG or 0.6, RogUIDB.expBarColorB or 1.0, 1)
+    expRestColorSwatch:SetColorTexture(
+        RogUIDB.expBarRestedR or 0.3, RogUIDB.expBarRestedG or 0.0, RogUIDB.expBarRestedB or 0.8, 1)
+    expBgColorSwatch:SetColorTexture(
+        RogUIDB.expBarBgR or 0.0, RogUIDB.expBarBgG or 0.0, RogUIDB.expBarBgB or 0.0, 1)
+    expPendingColorSwatch:SetColorTexture(
+        RogUIDB.expBarPendingR or 1.0, RogUIDB.expBarPendingG or 0.85, RogUIDB.expBarPendingB or 0.0, 1)
+    -- Rep bar
+    repEnableCheck:SetChecked(RogUIDB.repBarEnabled or false)
+    repTextCheck:SetChecked(RogUIDB.repBarShowText ~= false)
+    repWidthEdit:SetText(tostring(RogUIDB.repBarWidth or 600))
+    repHeightEdit:SetText(tostring(RogUIDB.repBarHeight or 10))
+    repFillColorSwatch:SetColorTexture(
+        RogUIDB.repBarFillR or 0.8, RogUIDB.repBarFillG or 0.2, RogUIDB.repBarFillB or 1.0, 1)
+    repBgColorSwatch:SetColorTexture(
+        RogUIDB.repBarBgR or 0.0, RogUIDB.repBarBgG or 0.0, RogUIDB.repBarBgB or 0.0, 1)
+    repPendColorSwatch:SetColorTexture(
+        RogUIDB.repBarPendingR or 1.0, RogUIDB.repBarPendingG or 0.85, RogUIDB.repBarPendingB or 0.0, 1)
+    petEnableCheck:SetChecked(RogUIDB.petReminderEnabled or false)
+    if RogUIDB.petReminderSound then
+        petSoundDropdown:SetSelectedSound(RogUIDB.petReminderSound, RogUIDB.petReminderSoundIsID)
+    end
+    -- Fade sliders
+    if API.SyncFadeSliders then API.SyncFadeSliders() end
+    -- Let BarsUI sync its controls too
+    if API._barsGeneralSync then API._barsGeneralSync() end
+    -- Update spec label
+    if API.specInfoLabel then
+        local specIndex = GetSpecialization and GetSpecialization()
+        local specName  = specIndex and select(2, GetSpecializationInfo(specIndex)) or "Unknown"
+        API.specInfoLabel:SetText("Active Spec: |cFFFFD700"..(API.playerClass or "?").." - "..tostring(specName).."|r")
+    end
+    -- Sync module tab checkboxes
+    if moduleChecks and API.IsTabEnabled then
+        for _, mod in ipairs(MODULE_TABS) do
+            local cb = moduleChecks[mod.key]
+            if cb then cb:SetChecked(API.IsTabEnabled(mod.label)) end
+        end
+    end
+end
+
+-- ── Register as the FIRST tab (General) ───────────────────────────────────────
+-- We defer via C_Timer.After(0) to ensure all other PLAYER_LOGIN handlers
+-- (including Core's, which initialises RogUIDB) have run before we call RegisterTab.
+-- TOC Dependencies guarantees Core's Lua runs before ours, so the API exists;
+-- we just need DB to be populated.
+
+local qolUIEvents = CreateFrame("Frame")
+qolUIEvents:RegisterEvent("PLAYER_LOGIN")
+qolUIEvents:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_LOGIN" then
+        C_Timer.After(0, function()
+            -- Sync initial state from DB
+            SyncGeneralUI()
+            -- Register General as the first tab
+            API.RegisterTab("General", generalFrame, SyncGeneralUI, 80, nil, 1)
+        end)
+    end
+end)
+
+-- ============================================================
+-- Bars UI (merged from RogUI_Bars)
+-- Adds Pull Timer and Break Timer sections to the General tab.
+-- ============================================================
+
+local function BuildBarsGeneralUI()
+    local generalFrame = _G["RogUIGeneralFrame"]
+    if not generalFrame then return end
+
+    -- ── Pull Timer section ─────────────────────────────────────────────────────
+    local pullHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+    pullHeader:SetPoint("TOPLEFT", petSoundLabel, "BOTTOMLEFT", 0, -20)
+    pullHeader:SetText("|cFFFFD700Pull Timer|r")
+
+    local pullDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    pullDesc:SetPoint("TOPLEFT", pullHeader, "BOTTOMLEFT", 0, -4)
+    pullDesc:SetText("/pull [seconds]  — starts a raid countdown (default 10s)")
+
+    local pullEnableCheck = CreateFrame("CheckButton","CSPullTimerCheck",generalFrame,"UICheckButtonTemplate")
+    pullEnableCheck:SetSize(24,24); pullEnableCheck:SetPoint("TOPLEFT", pullDesc, "BOTTOMLEFT", 0, -6)
+    local pullLbl = _G["CSPullTimerCheckText"]
+    if pullLbl then pullLbl:SetText("Enable pull timer (/pull command)") end
+    pullEnableCheck:SetChecked(RogUIDB and RogUIDB.pullTimerEnabled~=false or true)
+    pullEnableCheck:SetScript("OnClick", function(self)
+        if RogUIDB then RogUIDB.pullTimerEnabled = self:GetChecked() end
+    end)
+
+    -- ── Break Timer section ────────────────────────────────────────────────────
+    local breakHeader = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalLarge")
+    breakHeader:SetPoint("TOPLEFT", pullEnableCheck, "BOTTOMLEFT", 0, -14)
+    breakHeader:SetText("|cFFFFD700Break Timer|r")
+
+    local breakDesc = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    breakDesc:SetPoint("TOPLEFT", breakHeader, "BOTTOMLEFT", 0, -4)
+    breakDesc:SetText("/break [minutes]  — broadcasts a break bar to raid members (default 5m)")
+
+    local breakEnableCheck = CreateFrame("CheckButton","CSBreakTimerCheck",generalFrame,"UICheckButtonTemplate")
+    breakEnableCheck:SetSize(24,24); breakEnableCheck:SetPoint("TOPLEFT", breakDesc, "BOTTOMLEFT", 0, -6)
+    local breakLbl = _G["CSBreakTimerCheckText"]
+    if breakLbl then breakLbl:SetText("Enable break timer (/break command)") end
+    breakEnableCheck:SetChecked(RogUIDB and RogUIDB.breakTimerEnabled~=false or true)
+    breakEnableCheck:SetScript("OnClick", function(self)
+        if RogUIDB then RogUIDB.breakTimerEnabled = self:GetChecked() end
+    end)
+
+    -- ── Bar color picker ───────────────────────────────────────────────────────
+    local breakColorLabel = generalFrame:CreateFontString(nil,"OVERLAY","GameFontNormalSmall")
+    breakColorLabel:SetPoint("TOPLEFT", breakEnableCheck, "BOTTOMLEFT", 0, -10)
+    breakColorLabel:SetText("Bar Color:")
+
+    local breakColorSwatch = generalFrame:CreateTexture(nil,"ARTWORK")
+    breakColorSwatch:SetSize(18,18); breakColorSwatch:SetPoint("LEFT", breakColorLabel, "RIGHT", 8, 0)
+    local r0 = (RogUIDB and RogUIDB.breakBarR) or 0.2
+    local g0 = (RogUIDB and RogUIDB.breakBarG) or 0.6
+    local b0 = (RogUIDB and RogUIDB.breakBarB) or 1.0
+    breakColorSwatch:SetColorTexture(r0, g0, b0, 1)
+
+    local function ApplyBreakBarColor(r, g, b)
+        if RogUIAPI.breakFill then RogUIAPI.breakFill:SetColorTexture(r,g,b,0.85) end
+        breakColorSwatch:SetColorTexture(r,g,b,1)
+        if RogUIDB then RogUIDB.breakBarR=r; RogUIDB.breakBarG=g; RogUIDB.breakBarB=b end
+    end
+
+    local breakColorBtn = CreateFrame("Button",nil,generalFrame,"UIPanelButtonTemplate")
+    breakColorBtn:SetSize(54,20); breakColorBtn:SetPoint("LEFT", breakColorSwatch, "RIGHT", 6, 0)
+    breakColorBtn:SetText("Pick")
+    breakColorBtn:SetScript("OnClick", function()
+        local r=(RogUIDB and RogUIDB.breakBarR) or 0.2
+        local g=(RogUIDB and RogUIDB.breakBarG) or 0.6
+        local b=(RogUIDB and RogUIDB.breakBarB) or 1.0
+        if ColorPickerFrame.SetupColorPickerAndShow then
+            ColorPickerFrame:SetupColorPickerAndShow({
+                hasOpacity=false, r=r, g=g, b=b,
+                swatchFunc = function() local nr,ng,nb=ColorPickerFrame:GetColorRGB(); ApplyBreakBarColor(nr,ng,nb) end,
+                okayFunc   = function() local nr,ng,nb=ColorPickerFrame:GetColorRGB(); ApplyBreakBarColor(nr,ng,nb) end,
+                cancelFunc = function(prev) ApplyBreakBarColor(prev.r,prev.g,prev.b) end,
+            })
+        else
+            ColorPickerFrame.func = function() ApplyBreakBarColor(ColorPickerFrame:GetColorRGB()) end
+            ColorPickerFrame.cancelFunc = function(prev) ApplyBreakBarColor(prev.r,prev.g,prev.b) end
+            ColorPickerFrame.hasOpacity = false
+            ColorPickerFrame:SetColorRGB(r,g,b); ShowUIPanel(ColorPickerFrame)
+        end
+    end)
+
+    ApplyBreakBarColor(r0, g0, b0)
+
+    -- Hook into the General tab sync so these controls stay up to date
+    local existingSync = RogUIAPI._barsGeneralSync
+    RogUIAPI._barsGeneralSync = function()
+        pullEnableCheck:SetChecked(RogUIDB and RogUIDB.pullTimerEnabled~=false or true)
+        breakEnableCheck:SetChecked(RogUIDB and RogUIDB.breakTimerEnabled~=false or true)
+        local r=(RogUIDB and RogUIDB.breakBarR) or 0.2
+        local g=(RogUIDB and RogUIDB.breakBarG) or 0.6
+        local b=(RogUIDB and RogUIDB.breakBarB) or 1.0
+        breakColorSwatch:SetColorTexture(r,g,b,1)
+        if existingSync then existingSync() end
+    end
+end
+
+local barsUIEvents = CreateFrame("Frame")
+barsUIEvents:RegisterEvent("PLAYER_LOGIN")
+barsUIEvents:SetScript("OnEvent", function(self, event)
+    if event == "PLAYER_LOGIN" then
+        C_Timer.After(0, BuildBarsGeneralUI)
+    end
+end)

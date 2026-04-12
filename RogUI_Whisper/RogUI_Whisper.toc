@@ -1,0 +1,10 @@
+## Interface: 120001
+## Title: RogUI |cFFFFAAAAWhisper|r
+## Notes: Enhanced whisper system with indicators and smart routing
+## Author: Rogus
+## Version: 3.0.1
+## RequiredDeps: RogUI_Core
+## X-Curse-Project-ID: 1472751
+
+Whisper.lua
+WhisperUI.lua

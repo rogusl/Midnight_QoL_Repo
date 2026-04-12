@@ -1,0 +1,10 @@
+## Interface: 120001
+## Title: RogUI |cFFFFAAAASmart Swap|r
+## Notes: Automatic equipment and specialization swapping based on context
+## Author: Rogus
+## Version: 3.0.1
+## RequiredDeps: RogUI_Core
+## SavedVariables: RogUISmartSwapDB
+## X-Curse-Project-ID: 1472751
+
+SmartSwap.lua

@@ -1,0 +1,11 @@
+## Interface: 120001
+## Title: RogUI |cFFFFAAAAKeystones|r
+## Notes: Mythic+ keystone timer and tracking
+## Author: Rogus
+## Version: 3.0.1
+## RequiredDeps: RogUI_Core
+## X-Curse-Project-ID: 1472751
+
+Keystones.lua
+MythicTimer.lua
+MythicTimerUI.lua
