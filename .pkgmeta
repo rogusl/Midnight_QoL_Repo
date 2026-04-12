@@ -1,15 +1,16 @@
 # Change this to match your CURSEFORGE project slug, 
 # but it must NOT be the same name as your subfolders if you use move-folders.
-package-as: MidnightQoL_Suite
+package-as: rog-ui
 
 move-folders:
   MidnightQoL: MidnightQoL
-  MidnightQoL_BuffAlerts: MidnightQoL_BuffAlerts
-  MidnightQoL_Castbar: MidnightQoL_Castbar
-  MidnightQoL_QoL: MidnightQoL_QoL
-  MidnightQoL_ResourceBars: MidnightQoL_ResourceBars
-  MidnightQoL_Whisper: MidnightQoL_Whisper
-  MidnightQoL_Keystones: MidnightQoL_Keystone
+  RogUI_Bags: RogUI_Bags
+  RogUI_Bars: RogUI_Bars
+  RogUI_Core: RogUI_Core
+  RogUI_ImprovedCDM: RogUI_ImprovedCDM
+  RogUI_Keystones: RogUI_Keystones
+  RogUI_SmartSwap: RogUI_SmartSwap
+  RogUI_Whisper: RogUI_Whisper
 
 ignore:
   - .pkgmeta
