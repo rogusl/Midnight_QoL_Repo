@@ -1,10 +1,38 @@
 ## Interface: 120001
-## Title: MidnightQoL |cFFFF0000(Migration Bridge - Safe to Delete)|r
-## Notes: This addon loads your old MidnightQoL settings for RogUI to migrate. You can safely delete this folder after logging in once with RogUI installed.
+## Title: Midnight QoL |cFFFFAAAACore|r
+## Notes: Core addon — main window, tab system, layout editor, spec profiles, profile copy tool.
 ## Author: Rogus
-## Version: 3.0.0-bridge
-## SavedVariables: BuffAlertDB, CastbarDB
+<<<<<<< HEAD
+## Version: 1.0.42
+=======
+## Version: 1.0.42
+>>>>>>> ad93054fd28f5543fffd3cbbcaa94c2d4d3942fe
+## SavedVariables: BuffAlertDB
 ## SavedVariablesPerAccount: MidnightQoLAccountDB
 ## X-Curse-Project-ID: 1472751
+## OptionalDeps: LibDeflate, AceComm-3.0, AceSerializer-3.0, ChatThrottleLib
 
+Libs\libs.xml
+
+API.lua
+Widgets.lua
+ImagesList.lua
+SoundsList.lua
+SetupGuide.lua
 MidnightQoL.lua
+
+# Spell Lists (Now pointing to the /Spells/ subfolder)
+Spells\ExternalBuffSpells.lua
+Spells\WarriorSpells.lua
+Spells\PaladinSpells.lua
+Spells\HunterSpells.lua
+Spells\RogueSpells.lua
+Spells\PriestSpells.lua
+Spells\DruidSpells.lua
+Spells\ShamanSpells.lua
+Spells\MageSpells.lua
+Spells\WarlockSpells.lua
+Spells\DeathKnightSpells.lua
+Spells\DemonHunterSpells.lua
+Spells\MonkSpells.lua
+Spells\EvokerSpells.lua
