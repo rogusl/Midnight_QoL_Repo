@@ -2,7 +2,7 @@
 ## Title: RogUI |cFFFFAAAACore|r
 ## Notes: Core engine, UI framework, and utilities for RogUI addons
 ## Author: Rogus
-## Version: 3.0.1
+## Version: 1.0.44
 ## SavedVariables: RogUIDB, RogUICastbarDB
 ## SavedVariablesPerAccount: RogUIAccountDB
 ## X-Curse-Project-ID: 1472751

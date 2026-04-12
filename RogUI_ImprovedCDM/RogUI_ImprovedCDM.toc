@@ -2,7 +2,7 @@
 ## Title: RogUI |cFFFFAAAACooldown Management|r
 ## Notes: Advanced cooldown tracking, taunt swap monitoring, and customizable action bars
 ## Author: Rogus
-## Version: 3.0.1
+## Version: 1.0.44
 ## RequiredDeps: RogUI_Core
 ## SavedVariables: RogUIImprovedCDMDB
 ## X-Curse-Project-ID: 1472751
